@@ -1,0 +1,18 @@
+{
+  "taz_path": "data/taz.gpkg::taz",
+  "links_path": "data/network.gpkg::master_links",
+  "nodes_path": "data/network.gpkg::master_nodes",
+  "output_folder": "output",
+  "fields": {
+    "taz_id": "TAZ_N",
+    "node_id": "NODE_ID"
+  },
+  "boundary_spacing": 2000.0,
+  "buffer_radius": 5000.0,
+  "target_connector_count": 4,
+  "minimum_connector_count": 3,
+  "minimum_angle": 60.0,
+  "maximum_snap_distance": null,
+  "output_format": "GPKG"
+}
+
