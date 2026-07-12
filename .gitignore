@@ -3,5 +3,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 output/
+input/
+input_backups/
+*.log
 *.gpkg-wal
 *.gpkg-shm

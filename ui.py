@@ -25,17 +25,22 @@ class ConnectorApp(ttk.Frame):
     def _make_variables(self) -> dict[str, tk.Variable]:
         return {
             "taz_path": tk.StringVar(),
-            "links_path": tk.StringVar(),
+            "here_links_path": tk.StringVar(),
+            "gstdm_links_path": tk.StringVar(),
             "nodes_path": tk.StringVar(),
             "output_folder": tk.StringVar(),
-            "taz_id": tk.StringVar(value="TAZ_N"),
-            "node_id": tk.StringVar(value="NODE_ID"),
-            "boundary_spacing": tk.StringVar(value="2000"),
-            "buffer_radius": tk.StringVar(value="5000"),
+            "taz_id": tk.StringVar(value="N"),
+            "node_id": tk.StringVar(value="N"),
+            "link_from_node": tk.StringVar(value="A"),
+            "link_to_node": tk.StringVar(value="B"),
+            "link_func_class": tk.StringVar(value="FUNC_CLASS"),
+            "sector_count": tk.StringVar(value="10"),
             "target_count": tk.StringVar(value="4"),
-            "minimum_count": tk.StringVar(value="3"),
+            "minimum_count": tk.StringVar(value="2"),
             "minimum_angle": tk.StringVar(value="60"),
             "maximum_snap": tk.StringVar(value=""),
+            "blocked_major_level": tk.StringVar(value="3"),
+            "boundary_tolerance": tk.StringVar(value="200"),
             "progress": tk.DoubleVar(value=0),
             "status": tk.StringVar(value="Ready"),
         }
@@ -55,8 +60,9 @@ class ConnectorApp(ttk.Frame):
         inputs.columnconfigure(1, weight=1)
         rows = [
             ("TAZ polygon layer", "taz_path", False),
-            ("Master Links layer", "links_path", False),
-            ("Master Nodes layer", "nodes_path", False),
+            ("HERE Master LINKS layer (density)", "here_links_path", False),
+            ("GSTDM LINKS layer (display)", "gstdm_links_path", False),
+            ("GSTDM Master NODES layer", "nodes_path", False),
             ("Output folder", "output_folder", True),
         ]
         for row_number, (label, key, folder) in enumerate(rows):
@@ -76,16 +82,22 @@ class ConnectorApp(ttk.Frame):
         ttk.Entry(mapping, textvariable=self.variables["taz_id"]).grid(row=0, column=1, sticky="ew", padx=(8, 20))
         ttk.Label(mapping, text="Node ID field").grid(row=0, column=2, sticky="w")
         ttk.Entry(mapping, textvariable=self.variables["node_id"]).grid(row=0, column=3, sticky="ew", padx=(8, 0))
-
+        ttk.Label(mapping, text="GSTDM link A field").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(mapping, textvariable=self.variables["link_from_node"]).grid(row=1, column=1, sticky="ew", padx=(8, 20), pady=(6, 0))
+        ttk.Label(mapping, text="GSTDM link B field").grid(row=1, column=2, sticky="w", pady=(6, 0))
+        ttk.Entry(mapping, textvariable=self.variables["link_to_node"]).grid(row=1, column=3, sticky="ew", padx=(8, 0), pady=(6, 0))
+        ttk.Label(mapping, text="GSTDM link FUNC_CLASS field").grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(mapping, textvariable=self.variables["link_func_class"]).grid(row=2, column=1, sticky="ew", padx=(8, 20), pady=(6, 0))
         parameters = ttk.LabelFrame(self, text="Parameters (feet / degrees)", padding=10)
         parameters.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         parameter_rows = [
-            ("Boundary spacing", "boundary_spacing"),
-            ("Buffer radius", "buffer_radius"),
-            ("Target connectors", "target_count"),
-            ("Minimum connectors", "minimum_count"),
+            ("Angular sectors per TAZ", "sector_count"),
+            ("Maximum connectors (2-5)", "target_count"),
+            ("Minimum connectors (2-5)", "minimum_count"),
             ("Minimum angle", "minimum_angle"),
             ("Maximum snap distance (blank = unlimited)", "maximum_snap"),
+            ("Blocked node MAJOR_LEVEL (<=)", "blocked_major_level"),
+            ("Snap node boundary tolerance", "boundary_tolerance"),
         ]
         for index, (label, key) in enumerate(parameter_rows):
             row, pair = divmod(index, 2)
@@ -137,19 +149,24 @@ class ConnectorApp(ttk.Frame):
         maximum_text = str(self.variables["maximum_snap"].get()).strip()
         return ProcessingConfig(
             taz_path=str(self.variables["taz_path"].get()).strip(),
-            links_path=str(self.variables["links_path"].get()).strip(),
+            here_links_path=str(self.variables["here_links_path"].get()).strip(),
+            gstdm_links_path=str(self.variables["gstdm_links_path"].get()).strip(),
             nodes_path=str(self.variables["nodes_path"].get()).strip(),
             output_folder=str(self.variables["output_folder"].get()).strip(),
             fields=FieldMapping(
                 taz_id=str(self.variables["taz_id"].get()).strip(),
                 node_id=str(self.variables["node_id"].get()).strip(),
+                link_from_node=str(self.variables["link_from_node"].get()).strip(),
+                link_to_node=str(self.variables["link_to_node"].get()).strip(),
+                link_func_class=str(self.variables["link_func_class"].get()).strip(),
             ),
-            boundary_spacing=float(self.variables["boundary_spacing"].get()),
-            buffer_radius=float(self.variables["buffer_radius"].get()),
+            sector_count=int(self.variables["sector_count"].get()),
             target_connector_count=int(self.variables["target_count"].get()),
             minimum_connector_count=int(self.variables["minimum_count"].get()),
             minimum_angle=float(self.variables["minimum_angle"].get()),
             maximum_snap_distance=float(maximum_text) if maximum_text else None,
+            blocked_major_level=int(self.variables["blocked_major_level"].get()),
+            boundary_endpoint_tolerance=float(self.variables["boundary_tolerance"].get()),
         )
 
     def _start(self) -> None:
@@ -158,8 +175,9 @@ class ConnectorApp(ttk.Frame):
             config.validate_parameters()
             for label, value in (
                 ("TAZ layer", config.taz_path),
-                ("Master Links layer", config.links_path),
-                ("Master Nodes layer", config.nodes_path),
+                ("HERE Master LINKS layer", config.here_links_path),
+                ("GSTDM LINKS layer", config.gstdm_links_path),
+                ("GSTDM Master NODES layer", config.nodes_path),
                 ("Output folder", config.output_folder),
             ):
                 if not value:
@@ -227,4 +245,3 @@ def launch() -> None:
     root = tk.Tk()
     ConnectorApp(root)
     root.mainloop()
-

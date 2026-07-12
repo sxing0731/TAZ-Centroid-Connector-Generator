@@ -22,19 +22,38 @@ def _select_with_angle(
     target: int,
     angle_threshold: float,
 ) -> list[int]:
-    selected_indices: list[int] = []
-    selected_angles: list[float] = []
-    for index, row in ranked.iterrows():
-        angle = float(row["ANGLE_DEG"])
-        if all(
-            angular_difference(angle, existing) >= angle_threshold
-            for existing in selected_angles
-        ):
-            selected_indices.append(index)
-            selected_angles.append(angle)
-        if len(selected_indices) >= target:
-            break
-    return selected_indices
+    if ranked.empty:
+        return []
+
+    rank_position = {
+        index: position for position, index in enumerate(ranked.index)
+    }
+    solutions: list[list[int]] = []
+    for seed_index in ranked.index:
+        selected_indices = [seed_index]
+        selected_angles = [float(ranked.at[seed_index, "ANGLE_DEG"])]
+        for index, row in ranked.iterrows():
+            if index == seed_index:
+                continue
+            angle = float(row["ANGLE_DEG"])
+            if all(
+                angular_difference(angle, existing) >= angle_threshold
+                for existing in selected_angles
+            ):
+                selected_indices.append(index)
+                selected_angles.append(angle)
+            if len(selected_indices) >= target:
+                break
+        solutions.append(selected_indices)
+
+    return min(
+        solutions,
+        key=lambda indices: (
+            -len(indices),
+            sum(rank_position[index] for index in indices),
+            tuple(rank_position[index] for index in indices),
+        ),
+    )
 
 
 def select_connectors(
@@ -44,8 +63,22 @@ def select_connectors(
 ) -> gpd.GeoDataFrame:
     """Select high-density candidates while preserving angular separation."""
     selected_parts: list[gpd.GeoDataFrame] = []
-    for taz_id, group in candidates.groupby("TAZ_N", sort=False):
-        ranked = group.sort_values(["DENSITY", "CC_PT"], ascending=[False, True])
+    for taz_id, group in candidates.groupby("N", sort=False):
+        group = group.copy()
+        if "SNAP_ALLOWED" not in group:
+            group["SNAP_ALLOWED"] = True
+        eligible = group[group["SNAP_ALLOWED"].fillna(False).astype(bool)].copy()
+        rejected_count = len(group) - len(eligible)
+        if rejected_count:
+            log(
+                f"TAZ {taz_id}: excluded {rejected_count} candidates without an "
+                "eligible snap node in the sector and boundary tolerance.",
+                20,
+            )
+        ranked = eligible.sort_values(
+            ["DENSITY", "CC_PT"],
+            ascending=[False, True],
+        )
         threshold = config.minimum_angle
         indices = _select_with_angle(
             ranked, config.target_connector_count, threshold
@@ -61,7 +94,7 @@ def select_connectors(
         if threshold < config.minimum_angle:
             log(
                 f"TAZ {taz_id}: angle threshold relaxed from "
-                f"{config.minimum_angle:g}° to {threshold:g}°.",
+                f"{config.minimum_angle:g} deg to {threshold:g} deg.",
                 30,
             )
         if len(indices) < config.minimum_connector_count:
@@ -80,4 +113,3 @@ def select_connectors(
         geometry="geometry",
         crs=candidates.crs,
     )
-

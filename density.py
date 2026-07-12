@@ -40,7 +40,7 @@ def calculate_road_density(
     result["ROAD_LENGTH"] = road_lengths
     result["DENSITY"] = np.nan_to_num(densities, nan=0.0, posinf=0.0, neginf=0.0)
     result["DENS_RANK"] = (
-        result.groupby("TAZ_N")["DENSITY"]
+        result.groupby("N")["DENSITY"]
         .rank(method="first", ascending=False)
         .astype(int)
     )
@@ -48,4 +48,3 @@ def calculate_road_density(
         count = int((result["DENSITY"] == 0).sum())
         log(f"{count} candidate buffers have zero road density.", 30)
     return result
-

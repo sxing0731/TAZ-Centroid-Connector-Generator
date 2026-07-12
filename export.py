@@ -13,25 +13,47 @@ from config import ProcessingConfig
 LogFn = Callable[[str, int], None]
 
 OUTPUT_FIELDS = [
-    "TAZ_N",
+    "N",
     "CC_PT",
+    "SECTOR_ID",
     "CC_NODE",
     "DENSITY",
     "DENS_RANK",
     "ANGLE_DEG",
     "NEAR_DIST",
     "SNAP_OK",
+    "LINE_NODE_DIST",
+    "MATCH_BND_DIST",
+    "MAJOR_LEVEL",
+    "MAJOR_INT",
+    "SNAP_ALLOWED",
+    "SNAP_FAIL_REASON",
+    "END_BND_DIST",
+    "END_ON_BND",
+    "CROSSES_TAZ",
+    "OUTSIDE_LEN",
 ]
 
 FIELD_DICTIONARY = [
-    ("TAZ_N", "Source TAZ identifier"),
+    ("N", "Source TAZ number"),
     ("CC_PT", "Generated connector candidate identifier"),
+    ("SECTOR_ID", "Angular sector sequence around the TAZ centroid"),
     ("CC_NODE", "Nearest snapped master-node identifier"),
-    ("DENSITY", "Clipped road length divided by clipped buffer area"),
+    ("DENSITY", "Clipped road length divided by clipped sector area"),
     ("DENS_RANK", "Road-density rank within the parent TAZ"),
     ("ANGLE_DEG", "Candidate bearing clockwise from north"),
     ("NEAR_DIST", "Distance from boundary candidate to nearest master node"),
     ("SNAP_OK", "Whether the nearest node satisfies maximum snap distance"),
+    ("LINE_NODE_DIST", "Distance from snapped node to the centroid-to-boundary candidate line"),
+    ("MATCH_BND_DIST", "Distance from candidate matched node to the parent TAZ boundary"),
+    ("MAJOR_LEVEL", "Highest GSTDM functional class touching the snapped node; lower numeric values are more major"),
+    ("MAJOR_INT", "Y when MAJOR_LEVEL is 1, 2, or 3; N for 4, 5, or missing"),
+    ("SNAP_ALLOWED", "Whether the snapped node is MAJOR_LEVEL 4/5 and passes sector and boundary-tolerance rules"),
+    ("SNAP_FAIL_REASON", "Reason a candidate could not be matched to an eligible snap node"),
+    ("END_BND_DIST", "Distance from snapped node to the parent TAZ boundary"),
+    ("END_ON_BND", "Whether snapped endpoint is within the boundary tolerance"),
+    ("CROSSES_TAZ", "Whether any final connector segment lies outside its parent TAZ"),
+    ("OUTSIDE_LEN", "Length of final connector lying outside its parent TAZ"),
 ]
 
 

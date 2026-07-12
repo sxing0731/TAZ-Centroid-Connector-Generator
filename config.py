@@ -12,8 +12,11 @@ from typing import Any
 class FieldMapping:
     """Source-field names required by the processing engine."""
 
-    taz_id: str = "TAZ_N"
-    node_id: str = "NODE_ID"
+    taz_id: str = "N"
+    node_id: str = "N"
+    link_from_node: str = "A"
+    link_to_node: str = "B"
+    link_func_class: str = "FUNC_CLASS"
 
 
 @dataclass(slots=True)
@@ -21,38 +24,48 @@ class ProcessingConfig:
     """All editable processing parameters and input/output locations."""
 
     taz_path: str = ""
-    links_path: str = ""
+    here_links_path: str = ""
+    gstdm_links_path: str = ""
     nodes_path: str = ""
     output_folder: str = ""
     fields: FieldMapping = field(default_factory=FieldMapping)
-    boundary_spacing: float = 2000.0
-    buffer_radius: float = 5000.0
+    sector_count: int = 10
     target_connector_count: int = 4
-    minimum_connector_count: int = 3
+    minimum_connector_count: int = 2
     minimum_angle: float = 60.0
     maximum_snap_distance: float | None = None
+    blocked_major_level: int = 3
+    boundary_endpoint_tolerance: float = 200.0
     output_format: str = "GPKG"
 
     def validate_parameters(self) -> None:
         """Validate non-spatial configuration values."""
-        if self.boundary_spacing <= 0:
-            raise ValueError("Boundary spacing must be greater than zero.")
-        if self.buffer_radius <= 0:
-            raise ValueError("Buffer radius must be greater than zero.")
-        if self.target_connector_count < 1:
-            raise ValueError("Target connectors must be at least 1.")
-        if self.minimum_connector_count < 1:
-            raise ValueError("Minimum connectors must be at least 1.")
+        if not 4 <= self.sector_count <= 72:
+            raise ValueError("Sector count must be between 4 and 72.")
+        if not 2 <= self.target_connector_count <= min(5, self.sector_count):
+            raise ValueError("Target connectors must be between 2 and 5 and cannot exceed sector count.")
+        if not 2 <= self.minimum_connector_count <= 5:
+            raise ValueError("Minimum connectors must be between 2 and 5.")
         if self.minimum_connector_count > self.target_connector_count:
             raise ValueError("Minimum connectors cannot exceed target connectors.")
         if not 0 <= self.minimum_angle <= 180:
             raise ValueError("Minimum angle must be between 0 and 180 degrees.")
         if self.maximum_snap_distance is not None and self.maximum_snap_distance < 0:
             raise ValueError("Maximum snap distance cannot be negative.")
+        if not 1 <= self.blocked_major_level <= 5:
+            raise ValueError("Blocked node major level ceiling must be between 1 and 5.")
+        if self.boundary_endpoint_tolerance < 0:
+            raise ValueError("Boundary endpoint tolerance cannot be negative.")
         if not self.fields.taz_id.strip():
             raise ValueError("TAZ ID field is required.")
         if not self.fields.node_id.strip():
             raise ValueError("Node ID field is required.")
+        if not self.fields.link_from_node.strip():
+            raise ValueError("GSTDM link A/from-node field is required.")
+        if not self.fields.link_to_node.strip():
+            raise ValueError("GSTDM link B/to-node field is required.")
+        if not self.fields.link_func_class.strip():
+            raise ValueError("GSTDM link functional-class field is required.")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,5 +80,8 @@ class ProcessingConfig:
     def from_json(cls, path: str | Path) -> "ProcessingConfig":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         data["fields"] = FieldMapping(**data.get("fields", {}))
+        if "links_path" in data:
+            legacy_links_path = data.pop("links_path")
+            data.setdefault("here_links_path", legacy_links_path)
+            data.setdefault("gstdm_links_path", legacy_links_path)
         return cls(**data)
-

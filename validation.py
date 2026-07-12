@@ -82,17 +82,31 @@ def _validate_geometry(
 
 def load_and_validate_inputs(
     config: ProcessingConfig,
-) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
+) -> tuple[
+    gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
+    gpd.GeoDataFrame,
+]:
     """Load all inputs and stop on any validation failure."""
     config.validate_parameters()
     taz = read_layer(config.taz_path)
-    links = read_layer(config.links_path)
+    here_links = read_layer(config.here_links_path)
+    gstdm_links = read_layer(config.gstdm_links_path)
     nodes = read_layer(config.nodes_path)
 
-    _validate_crs({"TAZ": taz, "Master Links": links, "Master Nodes": nodes})
+    _validate_crs(
+        {
+            "TAZ": taz,
+            "HERE Master Links": here_links,
+            "GSTDM Links": gstdm_links,
+            "GSTDM Master Nodes": nodes,
+        }
+    )
     _validate_geometry("TAZ", taz, {"Polygon", "MultiPolygon"})
-    _validate_geometry("Master Links", links, {"LineString", "MultiLineString"})
-    _validate_geometry("Master Nodes", nodes, {"Point", "MultiPoint"})
+    _validate_geometry("HERE Master Links", here_links, {"LineString", "MultiLineString"})
+    _validate_geometry("GSTDM Links", gstdm_links, {"LineString", "MultiLineString"})
+    _validate_geometry("GSTDM Master Nodes", nodes, {"Point", "MultiPoint"})
 
     if config.fields.taz_id not in taz.columns:
         raise InputValidationError(
@@ -102,9 +116,16 @@ def load_and_validate_inputs(
         raise InputValidationError(
             f"Node field '{config.fields.node_id}' was not found."
         )
+    for field_name, label in (
+        (config.fields.link_from_node, "GSTDM link A/from-node"),
+        (config.fields.link_to_node, "GSTDM link B/to-node"),
+        (config.fields.link_func_class, "GSTDM link functional-class"),
+    ):
+        if field_name not in gstdm_links.columns:
+            raise InputValidationError(f"{label} field '{field_name}' was not found.")
     if taz[config.fields.taz_id].isna().any():
         raise InputValidationError("TAZ ID field contains null values.")
     if taz[config.fields.taz_id].duplicated().any():
         raise InputValidationError("TAZ ID field must contain unique values.")
 
-    return taz, links, nodes
+    return taz, here_links, gstdm_links, nodes
