@@ -339,6 +339,11 @@ h2 {
   background: rgba(160, 170, 185, 0.08);
 }
 
+.swatch.poly.neighbor {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.14);
+}
+
 .swatch.dashed {
   width: 24px;
   height: 0;
@@ -362,6 +367,12 @@ h2 {
 
 .swatch.line.cc {
   border-color: #d62828;
+  border-top-width: 2px;
+}
+
+.swatch.line.neighbor-cc {
+  border-color: #f59e0b;
+  border-top-style: dashed;
   border-top-width: 2px;
 }
 

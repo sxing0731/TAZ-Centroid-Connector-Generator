@@ -292,7 +292,9 @@ async function goToTaz(id, options = {}) {
   qs("jumpInput").value = id;
   renderQueue();
   draw();
-  setStatus(`TAZ ${id}: ${state.payload.connectors.features.length} connector(s)`);
+  const currentCount = state.payload.connectors.features.length;
+  const nearbyCount = state.payload.neighborConnectors?.features?.length || 0;
+  setStatus(`TAZ ${id}: ${currentCount} connector(s), ${nearbyCount} nearby connector(s) within 1.5 mi`);
 }
 
 function shiftTaz(delta) {
@@ -331,6 +333,7 @@ function draw(mousePoint = null) {
   if (!state.payload) return;
   if (state.layers.context) {
     drawCollection(state.payload.context, { stroke: "#1769e0", fill: null, width: 1.2, dash: [6, 5] });
+    drawCollection(state.payload.neighborTaz, { stroke: "#8b5cf6", fill: "rgba(139,92,246,0.10)", width: 1.4 });
   }
   if (state.layers.here) {
     drawCollection(state.payload.hereLinks, { stroke: "#aeb4bd", fill: null, width: 0.55, alpha: 0.72 });
@@ -342,6 +345,7 @@ function draw(mousePoint = null) {
   if (state.layers.connectors) drawConnectors();
   drawCentroid();
   if (state.layers.nodes) drawNodes();
+  if (state.layers.context) drawNeighborTazLabels();
   drawCurrentTazLabel();
   drawEndpoint(mousePoint);
 }
@@ -501,6 +505,14 @@ function drawLine(coords) {
 
 function drawConnectors() {
   const ctx = state.ctx;
+  for (const feature of state.payload.neighborConnectors?.features || []) {
+    ctx.save();
+    ctx.strokeStyle = feature.properties.QC_STATUS === "edited" ? "#7c3aed" : "#f59e0b";
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([8, 4]);
+    drawGeometry(feature.geometry, false);
+    ctx.restore();
+  }
   for (const feature of state.payload.connectors.features || []) {
     const selected = state.selectedConnector && feature.properties.CC_PT === state.selectedConnector.properties.CC_PT;
     ctx.save();
@@ -509,6 +521,24 @@ function drawConnectors() {
     drawGeometry(feature.geometry, false);
     ctx.restore();
   }
+}
+
+function drawNeighborTazLabels() {
+  const ctx = state.ctx;
+  ctx.save();
+  ctx.font = "700 13px Segoe UI, Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const feature of state.payload.neighborTaz?.features || []) {
+    const center = featureCenter(feature);
+    const p = project(center);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.strokeText(feature.properties.N || "", p.x, p.y);
+    ctx.fillStyle = "#6d28d9";
+    ctx.fillText(feature.properties.N || "", p.x, p.y);
+  }
+  ctx.restore();
 }
 
 function drawNodes() {

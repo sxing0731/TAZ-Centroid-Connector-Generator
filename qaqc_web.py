@@ -17,6 +17,8 @@ from shapely.geometry import LineString, mapping
 from defaults import HERE_LINKS_PATH, ROOT, TAZ_PATH
 
 FEET_PER_MILE = 5280.0
+CONTEXT_MILES = 1.5
+CONTEXT_FEET = FEET_PER_MILE * CONTEXT_MILES
 
 
 def _id_text(value: object) -> str:
@@ -213,7 +215,7 @@ class QAQCDataStore:
         if taz_id not in self._taz_lookup.index:
             raise KeyError(f"TAZ {taz_id} not found")
         polygon = self._taz_lookup.loc[taz_id].geometry
-        context = polygon.buffer(FEET_PER_MILE)
+        context = polygon.buffer(CONTEXT_FEET)
         here = (
             self._clip_to_context(self.here_links, context)
             if include_here
@@ -222,6 +224,10 @@ class QAQCDataStore:
         gstdm = self._clip_to_context(self.gstdm_links, context)
         nodes = self.nodes.iloc[list(self.nodes.sindex.query(context, predicate="intersects"))].copy()
         lines = self.lines[self.lines["TAZ_ID_TEXT"] == taz_id].copy()
+        neighbor_taz = self.taz.iloc[list(self.taz.sindex.query(context, predicate="intersects"))].copy()
+        neighbor_taz = neighbor_taz[neighbor_taz["TAZ_ID_TEXT"] != taz_id].copy()
+        neighbor_ids = set(neighbor_taz["TAZ_ID_TEXT"].astype(str))
+        neighbor_lines = self.lines[self.lines["TAZ_ID_TEXT"].isin(neighbor_ids)].copy()
         centroid = self.centroids[self.centroids["TAZ_ID_TEXT"] == taz_id].copy()
         current_taz = self.taz[self.taz["TAZ_ID_TEXT"] == taz_id].copy()
         context_gdf = gpd.GeoDataFrame({"N": [taz_id]}, geometry=[context], crs=self.taz.crs)
@@ -233,6 +239,11 @@ class QAQCDataStore:
                 simplify_tolerance=25.0,
             ),
             "context": _geojson(context_gdf, ["N"], simplify_tolerance=80.0),
+            "neighborTaz": _geojson(
+                neighbor_taz.rename(columns={"TAZ_ID_TEXT": "N"}),
+                ["N"],
+                simplify_tolerance=35.0,
+            ),
             "hereLinks": _geojson(here, self.here_fields, simplify_tolerance=35.0),
             "gstdmLinks": _geojson(gstdm, self.gstdm_fields, simplify_tolerance=20.0),
             "nodes": _geojson(
@@ -242,6 +253,25 @@ class QAQCDataStore:
             "centroid": _geojson(centroid, ["N"]),
             "connectors": _geojson(
                 lines,
+                [
+                    "N",
+                    "TAZ_ID_TEXT",
+                    "CC_PT",
+                    "CC_NODE",
+                    "DENSITY",
+                    "DENS_RANK",
+                    "MAJOR_LEVEL",
+                    "MAJOR_INT",
+                    "NEAR_DIST",
+                    "LINE_NODE_DIST",
+                    "END_BND_DIST",
+                    "OUTSIDE_LEN",
+                    "QC_STATUS",
+                    "QC_NOTE",
+                ],
+            ),
+            "neighborConnectors": _geojson(
+                neighbor_lines,
                 [
                     "N",
                     "TAZ_ID_TEXT",

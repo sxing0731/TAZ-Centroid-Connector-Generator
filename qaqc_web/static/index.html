@@ -55,12 +55,14 @@
         <div class="legend">
           <div class="legend-title">Legend</div>
           <label><input type="checkbox" data-layer="allTaz" checked /><span class="swatch poly all"></span>TAZ Polygons</label>
-          <label><input type="checkbox" data-layer="context" checked /><span class="swatch dashed"></span>1-mile Context</label>
+          <label><input type="checkbox" data-layer="context" checked /><span class="swatch dashed"></span>1.5-mile Context</label>
+          <label><input type="checkbox" data-layer="context" checked /><span class="swatch poly neighbor"></span>Nearby TAZ</label>
           <label><input type="checkbox" data-layer="here" /><span class="swatch line here"></span>HERE Master Links</label>
           <label><input type="checkbox" data-layer="gstdm" checked /><span class="swatch line gstdm"></span>GSTDM Links</label>
           <label><input type="checkbox" data-layer="nodes" checked /><span class="swatch dot major"></span>Major Node</label>
           <label><input type="checkbox" data-layer="nodes" checked /><span class="swatch dot nonmajor"></span>Non-Major Node</label>
-          <label><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Centroid Connector</label>
+          <label><input type="checkbox" data-layer="connectors" checked /><span class="swatch line neighbor-cc"></span>Nearby TAZ CC</label>
+          <label><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Current TAZ CC</label>
           <div class="legend-row"><span class="swatch star">*</span>Centroid</div>
         </div>
         <div id="featureTooltip" class="feature-tooltip hidden"></div>
