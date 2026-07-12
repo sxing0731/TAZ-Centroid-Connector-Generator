@@ -18,11 +18,16 @@ const state = {
   isDraggingEndpoint: false,
   activePointerId: null,
   lastTapAt: 0,
+  basemap: "road",
+  tileCache: new Map(),
   layers: { allTaz: true, gstdm: true, nodes: true, connectors: true },
   edits: JSON.parse(localStorage.getItem("tazQaqcEdits") || "{}"),
 };
 
 const qs = (id) => document.getElementById(id);
+const SOURCE_PROJ =
+  "+proj=lcc +lat_0=0 +lon_0=-83.5 +lat_1=31.4166666666667 +lat_2=34.2833333333333 +x_0=0 +y_0=0 +datum=NAD83 +units=us-ft +no_defs +type=crs";
+const FT_TO_M = 0.3048006096012192;
 
 function toast(message) {
   const el = qs("toast");
@@ -70,6 +75,10 @@ function bindControls() {
   qs("cubeBtn").addEventListener("click", exportCubeDbf);
   qs("clearBtn").addEventListener("click", clearSelection);
   qs("queueFilter").addEventListener("change", renderQueue);
+  qs("basemapSelect").addEventListener("change", () => {
+    state.basemap = qs("basemapSelect").value;
+    draw();
+  });
   document.querySelectorAll(".legend input").forEach((input) => {
     input.addEventListener("change", () => {
       state.layers[input.dataset.layer] = input.checked;
@@ -336,9 +345,13 @@ function panBy(dx, dy) {
 function draw(mousePoint = null) {
   const ctx = state.ctx;
   ctx.clearRect(0, 0, state.width, state.height);
-  ctx.fillStyle = "#f7f8fa";
-  ctx.fillRect(0, 0, state.width, state.height);
-  drawGrid();
+  if (state.basemap !== "none" && state.view) {
+    drawBasemap();
+  } else {
+    ctx.fillStyle = "#f7f8fa";
+    ctx.fillRect(0, 0, state.width, state.height);
+    drawGrid();
+  }
   if (!state.payload || !state.view) return;
   if (state.layers.allTaz) {
     for (const taz of state.index.allTaz) drawGeometry(taz.geom, "rgba(160,170,185,0.035)", "#aab2bf", 0.6);
@@ -350,6 +363,95 @@ function draw(mousePoint = null) {
   if (state.layers.nodes) drawNodes();
   drawLabel();
   drawEndpoint(mousePoint);
+}
+
+function drawBasemap() {
+  const ctx = state.ctx;
+  ctx.fillStyle = state.basemap === "satellite" ? "#d5d8d2" : "#eef1f5";
+  ctx.fillRect(0, 0, state.width, state.height);
+  if (!window.proj4) {
+    drawGrid();
+    status("Basemap projection library did not load. Vector layers still work.");
+    return;
+  }
+  const center = sourceToLonLat([(state.view.minX + state.view.maxX) / 2, (state.view.minY + state.view.maxY) / 2]);
+  const feetPerPixel = 1 / mapFrame().scale;
+  const metersPerPixel = feetPerPixel * FT_TO_M;
+  const targetRes = 156543.03392 * Math.cos((center[1] * Math.PI) / 180);
+  const z = clamp(Math.round(Math.log2(targetRes / metersPerPixel)), 3, state.basemap === "satellite" ? 18 : 19);
+  const corners = [
+    sourceToLonLat([state.view.minX, state.view.minY]),
+    sourceToLonLat([state.view.minX, state.view.maxY]),
+    sourceToLonLat([state.view.maxX, state.view.minY]),
+    sourceToLonLat([state.view.maxX, state.view.maxY]),
+  ];
+  const lons = corners.map((p) => p[0]);
+  const lats = corners.map((p) => p[1]);
+  const nw = lonLatToTile(Math.min(...lons), Math.max(...lats), z);
+  const se = lonLatToTile(Math.max(...lons), Math.min(...lats), z);
+  const maxTile = 2 ** z - 1;
+  for (let x = clamp(nw.x, 0, maxTile); x <= clamp(se.x, 0, maxTile); x++) {
+    for (let y = clamp(nw.y, 0, maxTile); y <= clamp(se.y, 0, maxTile); y++) {
+      drawTile(x, y, z);
+    }
+  }
+}
+
+function drawTile(x, y, z) {
+  const img = getTileImage(x, y, z);
+  if (!img || !img.complete || !img.naturalWidth) return;
+  const nw = lonLatToSource(tileToLonLat(x, y, z));
+  const se = lonLatToSource(tileToLonLat(x + 1, y + 1, z));
+  const p1 = project(nw);
+  const p2 = project(se);
+  const left = Math.min(p1.x, p2.x);
+  const top = Math.min(p1.y, p2.y);
+  const width = Math.abs(p2.x - p1.x);
+  const height = Math.abs(p2.y - p1.y);
+  if (width > 0 && height > 0) state.ctx.drawImage(img, left, top, width, height);
+}
+
+function getTileImage(x, y, z) {
+  const key = `${state.basemap}:${z}:${x}:${y}`;
+  if (state.tileCache.has(key)) return state.tileCache.get(key);
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => draw();
+  img.onerror = () => state.tileCache.set(key, null);
+  img.src =
+    state.basemap === "satellite"
+      ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
+      : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`;
+  state.tileCache.set(key, img);
+  return img;
+}
+
+function sourceToLonLat(xy) {
+  return proj4(SOURCE_PROJ, "WGS84", xy);
+}
+
+function lonLatToSource(xy) {
+  return proj4("WGS84", SOURCE_PROJ, xy);
+}
+
+function lonLatToTile(lon, lat, z) {
+  const n = 2 ** z;
+  const latRad = (lat * Math.PI) / 180;
+  return {
+    x: Math.floor(((lon + 180) / 360) * n),
+    y: Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n),
+  };
+}
+
+function tileToLonLat(x, y, z) {
+  const n = 2 ** z;
+  const lon = (x / n) * 360 - 180;
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
+  return [lon, lat];
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function drawGrid() {

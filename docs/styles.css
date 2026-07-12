@@ -240,6 +240,32 @@ button.active {
   font-size: 12px;
 }
 
+.basemap-control {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 520;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.1);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.basemap-control select {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+
 .toast {
   left: auto;
   right: 12px;
@@ -482,6 +508,20 @@ textarea {
     max-height: 36dvh;
     overflow: auto;
     padding: 10px;
+    font-size: 12px;
+  }
+
+  .basemap-control {
+    top: 10px;
+    right: 10px;
+    padding: 7px 8px;
+    max-width: none;
+    font-size: 0;
+  }
+
+  .basemap-control select {
+    width: 104px;
+    max-width: 104px;
     font-size: 12px;
   }
 

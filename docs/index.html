@@ -43,6 +43,13 @@
 
       <section class="map-wrap">
         <canvas id="mapCanvas"></canvas>
+        <label class="basemap-control">Basemap
+          <select id="basemapSelect">
+            <option value="none">None</option>
+            <option value="road" selected>Road</option>
+            <option value="satellite">Satellite</option>
+          </select>
+        </label>
         <div class="map-help">Wheel/double tap: zoom | Drag map: pan | Click CC: select | Drag endpoint: snap</div>
         <div class="legend">
           <div class="legend-title">Legend</div>
@@ -85,6 +92,7 @@
       <span>Public dynamic mode: no HERE links, browser-local edits</span>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
