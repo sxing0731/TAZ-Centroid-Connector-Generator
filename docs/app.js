@@ -20,6 +20,7 @@ const state = {
   lastTapAt: 0,
   basemap: "road",
   tileCache: new Map(),
+  contextConnector: null,
   layers: { allTaz: true, gstdm: true, nodes: true, connectors: true },
   edits: JSON.parse(localStorage.getItem("tazQaqcEdits") || "{}"),
 };
@@ -74,6 +75,22 @@ function bindControls() {
   qs("reviewedBtn").addEventListener("click", markReviewed);
   qs("cubeBtn").addEventListener("click", exportCubeDbf);
   qs("clearBtn").addEventListener("click", clearSelection);
+  qs("ctxAddCcBtn").addEventListener("click", () => {
+    hideContextMenu();
+    state.addMode = true;
+    updateAddModeUi();
+    toast("Tap an eligible non-major node to add CC.");
+  });
+  qs("ctxDeleteCcBtn").addEventListener("click", () => {
+    hideContextMenu();
+    deleteSelectedConnector();
+  });
+  document.addEventListener("click", (event) => {
+    if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideContextMenu();
+  });
   qs("queueFilter").addEventListener("change", renderQueue);
   qs("basemapSelect").addEventListener("change", () => {
     state.basemap = qs("basemapSelect").value;
@@ -91,6 +108,17 @@ function bindControls() {
 }
 
 function bindCanvas() {
+  state.canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    const pt = eventPoint(event);
+    const connector = findConnectorAt(pt) || state.selected;
+    if (!connector) {
+      hideContextMenu();
+      return;
+    }
+    selectConnector(connector);
+    showContextMenu(event.clientX, event.clientY, connector);
+  });
   state.canvas.addEventListener("wheel", (event) => {
     event.preventDefault();
     zoomAt(event.offsetX, event.offsetY, event.deltaY < 0 ? 0.82 : 1.22);
@@ -257,6 +285,8 @@ function shiftTaz(delta) {
 function applySavedEdits(payload) {
   const saved = state.edits[payload.tazId];
   if (!saved) return;
+  const deleted = new Set(saved.deleted || []);
+  payload.connectors = payload.connectors.filter((connector) => !deleted.has(connector.ccPt));
   for (const connector of payload.connectors) {
     const edit = saved.connectors?.[connector.ccPt];
     if (edit) Object.assign(connector, edit);
@@ -638,6 +668,7 @@ function pointSegmentDistance(p, a, b) {
 
 function selectConnector(c) {
   state.selected = c;
+  state.contextConnector = c;
   state.pendingNode = null;
   state.dirty = false;
   updateInspector();
@@ -659,8 +690,52 @@ function clearSelection() {
   state.selected = null;
   state.pendingNode = null;
   state.dirty = false;
+  state.contextConnector = null;
+  hideContextMenu();
   updateInspector();
   draw();
+}
+
+function showContextMenu(clientX, clientY, connector) {
+  state.contextConnector = connector;
+  const menu = qs("ccContextMenu");
+  menu.classList.remove("hidden");
+  const parent = state.canvas.parentElement.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const left = Math.min(clientX - parent.left, parent.width - menuRect.width - 8);
+  const top = Math.min(clientY - parent.top, parent.height - menuRect.height - 8);
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+}
+
+function hideContextMenu() {
+  qs("ccContextMenu").classList.add("hidden");
+}
+
+function deleteSelectedConnector() {
+  const connector = state.contextConnector || state.selected;
+  if (!connector || !state.payload) {
+    toast("Right-click a connector first.");
+    return;
+  }
+  const tazId = state.payload.tazId;
+  state.edits[tazId] ||= {};
+  if (connector.status === "added" || connector.ccPt.includes("_ADD")) {
+    state.edits[tazId].added = (state.edits[tazId].added || []).filter((item) => item.ccPt !== connector.ccPt);
+  } else {
+    state.edits[tazId].deleted ||= [];
+    if (!state.edits[tazId].deleted.includes(connector.ccPt)) state.edits[tazId].deleted.push(connector.ccPt);
+    if (state.edits[tazId].connectors) delete state.edits[tazId].connectors[connector.ccPt];
+  }
+  state.payload.connectors = state.payload.connectors.filter((item) => item.ccPt !== connector.ccPt);
+  state.selected = null;
+  state.contextConnector = null;
+  state.pendingNode = null;
+  state.dirty = false;
+  saveLocal();
+  updateInspector();
+  draw();
+  toast(`Deleted ${connector.ccPt} in this browser.`);
 }
 
 function updateInspector() {
