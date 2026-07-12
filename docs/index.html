@@ -1,139 +1,119 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TAZ Centroid Connector Generator</title>
-  <style>
-    :root {
-      color-scheme: light;
-      font-family: Arial, Helvetica, sans-serif;
-      color: #1f2933;
-      background: #f5f7fa;
-    }
-    body {
-      margin: 0;
-    }
-    header {
-      background: #123f6d;
-      color: white;
-      padding: 42px 24px;
-    }
-    main {
-      max-width: 980px;
-      margin: 0 auto;
-      padding: 32px 24px 48px;
-    }
-    h1 {
-      margin: 0 0 10px;
-      font-size: clamp(30px, 4vw, 46px);
-      line-height: 1.1;
-      letter-spacing: 0;
-    }
-    h2 {
-      margin-top: 32px;
-      color: #123f6d;
-    }
-    p, li {
-      line-height: 1.6;
-      font-size: 16px;
-    }
-    .wrap {
-      max-width: 980px;
-      margin: 0 auto;
-    }
-    .lead {
-      max-width: 760px;
-      margin: 0;
-      font-size: 18px;
-      color: #e6eef8;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: 16px;
-      margin-top: 20px;
-    }
-    .card {
-      background: white;
-      border: 1px solid #d9e2ec;
-      border-radius: 8px;
-      padding: 18px;
-      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
-    }
-    .card h3 {
-      margin: 0 0 8px;
-      font-size: 18px;
-      color: #102a43;
-    }
-    code {
-      background: #e9eef5;
-      border-radius: 4px;
-      padding: 2px 5px;
-    }
-    pre {
-      background: #102a43;
-      color: #e6eef8;
-      border-radius: 8px;
-      padding: 16px;
-      overflow-x: auto;
-    }
-    a {
-      color: #0b63ce;
-    }
-    .note {
-      background: #fff8e5;
-      border-left: 4px solid #f0b429;
-      padding: 12px 14px;
-      border-radius: 4px;
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="wrap">
-      <h1>TAZ Centroid Connector Generator</h1>
-      <p class="lead">A local Python GIS workflow for generating, reviewing, and exporting TAZ centroid connectors from TAZ polygons, HERE Master LINKS, GSTDM LINKS, and GSTDM Master NODES.</p>
-    </div>
-  </header>
-  <main>
-    <section class="grid" aria-label="Project highlights">
-      <div class="card">
-        <h3>Sector-Based Candidate Search</h3>
-        <p>Splits each TAZ around its centroid, calculates HERE link density by sector, and prioritizes well distributed candidate directions.</p>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TAZ Connector QAQC</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">CC</div>
+        <div>
+          <strong>TAZ Connector QAQC</strong>
+          <span>GitHub Pages static preview</span>
+        </div>
       </div>
-      <div class="card">
-        <h3>Non-Major Node Snapping</h3>
-        <p>Derives GSTDM node <code>MAJOR_LEVEL</code> from connected link functional classes and blocks snaps to major intersections.</p>
-      </div>
-      <div class="card">
-        <h3>QAQC Web Review</h3>
-        <p>Provides a local browser review tool for inspecting TAZ context, editing connector endpoints, adding connectors, and exporting Cube DBF records.</p>
-      </div>
-    </section>
+      <button id="prevBtn">Previous TAZ</button>
+      <button id="nextBtn">Next TAZ</button>
+      <button id="saveBtn" class="primary">Save Edit</button>
+      <button id="addCcBtn">Add CC</button>
+      <button id="reviewedBtn">Mark Reviewed</button>
+      <label class="jump">Jump to TAZ <input id="jumpInput" value="1260" /></label>
+      <button id="jumpBtn">Go</button>
+      <button id="cubeBtn">Cube DBF</button>
+      <div id="dirtyBadge" class="badge">Preview only</div>
+    </header>
 
-    <section>
-      <h2>Run Locally</h2>
-      <pre><code>py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python main.py</code></pre>
-      <p>For configured local inputs, run the full workflow and review map generation with:</p>
-      <pre><code>python main.py --run-default --maps --output output</code></pre>
-    </section>
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="panel-head">
+          <h2>TAZ Queue</h2>
+          <select id="queueFilter">
+            <option>All</option>
+            <option>Flagged</option>
+            <option>Unreviewed</option>
+            <option>Edited</option>
+          </select>
+        </div>
+        <div class="queue">
+          <div class="queue-item">
+            <strong>1258</strong>
+            <small>Long connector</small>
+            <span class="pill flagged">FLAGGED</span>
+          </div>
+          <div class="queue-item edited">
+            <strong>1259</strong>
+            <small>Updated connector</small>
+            <span class="pill edited">EDITED</span>
+          </div>
+          <div class="queue-item active">
+            <strong>1260</strong>
+            <small>Connector adjusted</small>
+            <span class="pill edited">EDITED</span>
+          </div>
+          <div class="queue-item reviewed">
+            <strong>1261</strong>
+            <small>Looks good</small>
+            <span class="pill reviewed">REVIEWED</span>
+          </div>
+          <div class="queue-item">
+            <strong>1263</strong>
+            <small>Outside length high</small>
+            <span class="pill flagged">FLAGGED</span>
+          </div>
+        </div>
+      </aside>
 
-    <section>
-      <h2>QAQC Web App</h2>
-      <pre><code>.\run_qaqc_web.ps1</code></pre>
-      <p>Then open <code>http://127.0.0.1:8765</code>. The app is intentionally local because it reads GIS outputs and writes QAQC files on the workstation.</p>
-      <p class="note">Input datasets and generated outputs are not included in the public repository.</p>
-    </section>
+      <section class="map-wrap">
+        <canvas id="mapCanvas"></canvas>
+        <div class="map-help">Static preview | Run locally for live TAZ data, snapping, saving, and DBF export</div>
+        <div class="legend">
+          <div class="legend-title">Legend</div>
+          <label><input type="checkbox" checked disabled /><span class="swatch poly all"></span>TAZ Polygons</label>
+          <label><input type="checkbox" checked disabled /><span class="swatch dashed"></span>1-mile Context</label>
+          <label><input type="checkbox" checked disabled /><span class="swatch line here"></span>HERE Master Links</label>
+          <label><input type="checkbox" checked disabled /><span class="swatch line gstdm"></span>GSTDM Links</label>
+          <label><input type="checkbox" checked disabled /><span class="swatch dot major"></span>Major Node</label>
+          <label><input type="checkbox" checked disabled /><span class="swatch dot nonmajor"></span>Non-Major Node</label>
+          <label><input type="checkbox" checked disabled /><span class="swatch line cc"></span>Centroid Connector</label>
+          <div class="legend-row"><span class="swatch star">*</span>Centroid</div>
+        </div>
+        <div id="featureTooltip" class="feature-tooltip hidden"></div>
+        <div id="toast" class="toast">
+          Public page is a static preview. Local QAQC runs at http://127.0.0.1:8765.
+        </div>
+      </section>
 
-    <section>
-      <h2>Repository</h2>
-      <p>Read the full workflow documentation in the <a href="https://github.com/sxing0731/TAZ-Centroid-Connector-Generator/blob/main/README.md">README</a> and QAQC instructions in <a href="https://github.com/sxing0731/TAZ-Centroid-Connector-Generator/blob/main/QAQC_WEB_APP.md">QAQC_WEB_APP.md</a>.</p>
-    </section>
-  </main>
-</body>
+      <aside class="inspector">
+        <div class="panel-head">
+          <h2>Selected Connector</h2>
+          <button title="Clear selection">x</button>
+        </div>
+        <dl>
+          <dt>Current TAZ</dt><dd>1260</dd>
+          <dt>CC_PT</dt><dd>1260_17</dd>
+          <dt>Current Node</dt><dd>N 3029184</dd>
+          <dt>New Node</dt><dd class="orange">N 3029441</dd>
+          <dt>MAJOR_LEVEL</dt><dd>4</dd>
+          <dt>OUTSIDE_LEN</dt><dd>742.48 ft</dd>
+          <dt>LINE_NODE_DIST</dt><dd>58.31 ft</dd>
+        </dl>
+        <label class="note-label">QC Note</label>
+        <textarea maxlength="250">Static preview of the QAQC review screen.</textarea>
+        <div class="hint">
+          This GitHub Pages view cannot read local GIS data or write QAQC edits.
+          Start the local Python server for full connector review.
+        </div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span>Repository: sxing0731/TAZ-Centroid-Connector-Generator</span>
+      <span>Snap target: MAJOR_LEVEL 4/5 only</span>
+    </footer>
+
+    <script src="preview.js"></script>
+  </body>
 </html>
