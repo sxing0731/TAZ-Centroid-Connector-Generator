@@ -98,6 +98,11 @@ button.active {
   color: #a34700;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .jump {
   display: flex;
   align-items: center;

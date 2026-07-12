@@ -21,6 +21,8 @@ const state = {
   basemap: "road",
   tileCache: new Map(),
   contextConnector: null,
+  undoStack: [],
+  redoStack: [],
   layers: { allTaz: true, gstdm: true, nodes: true, connectors: true },
   edits: JSON.parse(localStorage.getItem("tazQaqcEdits") || "{}"),
 };
@@ -69,6 +71,8 @@ async function fetchJson(url) {
 function bindControls() {
   qs("prevBtn").addEventListener("click", () => shiftTaz(-1));
   qs("nextBtn").addEventListener("click", () => shiftTaz(1));
+  qs("undoBtn").addEventListener("click", undoEdit);
+  qs("redoBtn").addEventListener("click", redoEdit);
   qs("jumpBtn").addEventListener("click", () => goToTaz(qs("jumpInput").value.trim()));
   qs("saveBtn").addEventListener("click", saveEdit);
   qs("addCcBtn").addEventListener("click", toggleAddMode);
@@ -296,7 +300,62 @@ function applySavedEdits(payload) {
 
 function saveLocal() {
   localStorage.setItem("tazQaqcEdits", JSON.stringify(state.edits));
+  updateHistoryButtons();
   renderQueue();
+}
+
+function editSnapshot() {
+  return JSON.stringify(state.edits || {});
+}
+
+function pushEditHistory() {
+  state.undoStack.push(editSnapshot());
+  if (state.undoStack.length > 80) state.undoStack.shift();
+  state.redoStack = [];
+  updateHistoryButtons();
+}
+
+function updateHistoryButtons() {
+  const undo = qs("undoBtn");
+  const redo = qs("redoBtn");
+  if (!undo || !redo) return;
+  undo.disabled = state.undoStack.length === 0;
+  redo.disabled = state.redoStack.length === 0;
+}
+
+async function restoreEdits(snapshot) {
+  state.edits = JSON.parse(snapshot || "{}");
+  localStorage.setItem("tazQaqcEdits", JSON.stringify(state.edits));
+  state.selected = null;
+  state.pendingNode = null;
+  state.contextConnector = null;
+  state.dirty = false;
+  hideContextMenu();
+  updateHistoryButtons();
+  renderQueue();
+  if (state.payload) await goToTaz(state.payload.tazId, true);
+}
+
+async function undoEdit() {
+  if (!state.undoStack.length) {
+    toast("No edit to undo.");
+    return;
+  }
+  state.redoStack.push(editSnapshot());
+  const snapshot = state.undoStack.pop();
+  await restoreEdits(snapshot);
+  toast("Edit undone.");
+}
+
+async function redoEdit() {
+  if (!state.redoStack.length) {
+    toast("No edit to redo.");
+    return;
+  }
+  state.undoStack.push(editSnapshot());
+  const snapshot = state.redoStack.pop();
+  await restoreEdits(snapshot);
+  toast("Edit redone.");
 }
 
 function setViewToPayload() {
@@ -719,6 +778,7 @@ function deleteSelectedConnector() {
     return;
   }
   const tazId = state.payload.tazId;
+  pushEditHistory();
   state.edits[tazId] ||= {};
   if (connector.status === "added" || connector.ccPt.includes("_ADD")) {
     state.edits[tazId].added = (state.edits[tazId].added || []).filter((item) => item.ccPt !== connector.ccPt);
@@ -768,6 +828,7 @@ function saveEdit() {
     note: qs("qcNote").value,
     geom,
   };
+  pushEditHistory();
   state.edits[tazId] ||= {};
   state.edits[tazId].connectors ||= {};
   state.edits[tazId].connectors[state.selected.ccPt] = edit;
@@ -798,6 +859,7 @@ function addConnector(node) {
     return;
   }
   const tazId = state.payload.tazId;
+  pushEditHistory();
   const count = (state.edits[tazId]?.added?.length || 0) + 1;
   const connector = {
     ccPt: `${tazId}_ADD${count}`,
@@ -821,6 +883,7 @@ function addConnector(node) {
 
 function markReviewed() {
   const tazId = state.payload.tazId;
+  pushEditHistory();
   state.edits[tazId] ||= {};
   state.edits[tazId].reviewed = true;
   state.edits[tazId].note = qs("qcNote").value;
