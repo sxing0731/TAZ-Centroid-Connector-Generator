@@ -18,6 +18,9 @@ const state = {
   dragStart: null,
   activePointerId: null,
   lastTapAt: 0,
+  basemap: "road",
+  tileCache: new Map(),
+  contextConnector: null,
   hoverFeature: null,
   layers: {
     allTaz: true,
@@ -28,6 +31,10 @@ const state = {
     connectors: true,
   },
 };
+
+const SOURCE_PROJ =
+  "+proj=lcc +lat_0=0 +lon_0=-83.5 +lat_1=31.4166666666667 +lat_2=34.2833333333333 +x_0=0 +y_0=0 +datum=NAD83 +units=us-ft +no_defs +type=crs";
+const FT_TO_M = 0.3048006096012192;
 
 function qs(id) {
   return document.getElementById(id);
@@ -64,6 +71,7 @@ async function init() {
   bindControls();
 
   const appState = await getJson("/api/state");
+  updateHistoryButtons(appState);
   qs("runFolder").textContent = appState.runFolder;
   state.tazOrder = appState.tazOrder;
   renderQueue();
@@ -86,13 +94,35 @@ function resizeCanvas() {
 function bindControls() {
   qs("prevBtn").addEventListener("click", () => shiftTaz(-1));
   qs("nextBtn").addEventListener("click", () => shiftTaz(1));
+  qs("undoBtn").addEventListener("click", undoEdit);
+  qs("redoBtn").addEventListener("click", redoEdit);
   qs("saveBtn").addEventListener("click", saveEdit);
   qs("addCcBtn").addEventListener("click", toggleAddMode);
   qs("reviewedBtn").addEventListener("click", markReviewed);
   qs("jumpBtn").addEventListener("click", () => goToTaz(qs("jumpInput").value.trim()));
   qs("cubeBtn").addEventListener("click", showCubePath);
   qs("clearBtn").addEventListener("click", clearSelection);
+  qs("ctxAddCcBtn").addEventListener("click", () => {
+    hideContextMenu();
+    state.addMode = true;
+    updateAddModeUi();
+    toast("Tap an eligible non-major node to add CC.");
+  });
+  qs("ctxDeleteCcBtn").addEventListener("click", () => {
+    hideContextMenu();
+    deleteSelectedConnector();
+  });
+  document.addEventListener("click", (event) => {
+    if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideContextMenu();
+  });
   qs("queueFilter").addEventListener("change", renderQueue);
+  qs("basemapSelect").addEventListener("change", () => {
+    state.basemap = qs("basemapSelect").value;
+    draw();
+  });
   document.querySelectorAll(".legend input").forEach((input) => {
     input.addEventListener("change", async () => {
       state.layers[input.dataset.layer] = input.checked;
@@ -109,6 +139,17 @@ function bindControls() {
 }
 
 function bindCanvas() {
+  state.canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    const pt = eventPoint(event);
+    const connector = findConnectorAt(pt) || state.selectedConnector;
+    if (!connector) {
+      hideContextMenu();
+      return;
+    }
+    selectConnector(connector);
+    showContextMenu(event.clientX, event.clientY, connector);
+  });
   state.canvas.addEventListener("wheel", (event) => {
     event.preventDefault();
     const factor = event.deltaY < 0 ? 0.82 : 1.22;
@@ -277,9 +318,13 @@ function setViewToFeatureCollection(collection) {
 function draw(mousePoint = null) {
   const ctx = state.ctx;
   ctx.clearRect(0, 0, state.width, state.height);
-  ctx.fillStyle = "#f6f8fb";
-  ctx.fillRect(0, 0, state.width, state.height);
-  drawGrid();
+  if (state.basemap !== "none" && state.view) {
+    drawBasemap();
+  } else {
+    ctx.fillStyle = "#f6f8fb";
+    ctx.fillRect(0, 0, state.width, state.height);
+    drawGrid();
+  }
   if (state.allTaz && state.layers.allTaz) {
     drawCollection(state.allTaz, { stroke: "#aab2bf", fill: "rgba(160,170,185,0.035)", width: 0.6 });
   }
@@ -299,6 +344,94 @@ function draw(mousePoint = null) {
   if (state.layers.nodes) drawNodes();
   drawCurrentTazLabel();
   drawEndpoint(mousePoint);
+}
+
+function drawBasemap() {
+  const ctx = state.ctx;
+  ctx.fillStyle = state.basemap === "satellite" ? "#d5d8d2" : "#eef1f5";
+  ctx.fillRect(0, 0, state.width, state.height);
+  if (!window.proj4) {
+    drawGrid();
+    setStatus("Basemap projection library did not load. Vector layers still work.");
+    return;
+  }
+  const center = sourceToLonLat([(state.view.minX + state.view.maxX) / 2, (state.view.minY + state.view.maxY) / 2]);
+  const metersPerPixel = (1 / mapFrame().scale) * FT_TO_M;
+  const targetRes = 156543.03392 * Math.cos((center[1] * Math.PI) / 180);
+  const z = clamp(Math.round(Math.log2(targetRes / metersPerPixel)), 3, state.basemap === "satellite" ? 18 : 19);
+  const corners = [
+    sourceToLonLat([state.view.minX, state.view.minY]),
+    sourceToLonLat([state.view.minX, state.view.maxY]),
+    sourceToLonLat([state.view.maxX, state.view.minY]),
+    sourceToLonLat([state.view.maxX, state.view.maxY]),
+  ];
+  const lons = corners.map((p) => p[0]);
+  const lats = corners.map((p) => p[1]);
+  const nw = lonLatToTile(Math.min(...lons), Math.max(...lats), z);
+  const se = lonLatToTile(Math.max(...lons), Math.min(...lats), z);
+  const maxTile = 2 ** z - 1;
+  for (let x = clamp(nw.x, 0, maxTile); x <= clamp(se.x, 0, maxTile); x += 1) {
+    for (let y = clamp(nw.y, 0, maxTile); y <= clamp(se.y, 0, maxTile); y += 1) {
+      drawTile(x, y, z);
+    }
+  }
+}
+
+function drawTile(x, y, z) {
+  const img = getTileImage(x, y, z);
+  if (!img || !img.complete || !img.naturalWidth) return;
+  const nw = lonLatToSource(tileToLonLat(x, y, z));
+  const se = lonLatToSource(tileToLonLat(x + 1, y + 1, z));
+  const p1 = project(nw);
+  const p2 = project(se);
+  const left = Math.min(p1.x, p2.x);
+  const top = Math.min(p1.y, p2.y);
+  const width = Math.abs(p2.x - p1.x);
+  const height = Math.abs(p2.y - p1.y);
+  if (width > 0 && height > 0) state.ctx.drawImage(img, left, top, width, height);
+}
+
+function getTileImage(x, y, z) {
+  const key = `${state.basemap}:${z}:${x}:${y}`;
+  if (state.tileCache.has(key)) return state.tileCache.get(key);
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => draw();
+  img.onerror = () => state.tileCache.set(key, null);
+  img.src =
+    state.basemap === "satellite"
+      ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
+      : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`;
+  state.tileCache.set(key, img);
+  return img;
+}
+
+function sourceToLonLat(xy) {
+  return proj4(SOURCE_PROJ, "WGS84", xy);
+}
+
+function lonLatToSource(xy) {
+  return proj4("WGS84", SOURCE_PROJ, xy);
+}
+
+function lonLatToTile(lon, lat, z) {
+  const n = 2 ** z;
+  const latRad = (lat * Math.PI) / 180;
+  return {
+    x: Math.floor(((lon + 180) / 360) * n),
+    y: Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n),
+  };
+}
+
+function tileToLonLat(x, y, z) {
+  const n = 2 ** z;
+  const lon = (x / n) * 360 - 180;
+  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
+  return [lon, lat];
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function drawGrid() {
@@ -665,6 +798,7 @@ function endpointHit(point) {
 
 function selectConnector(feature) {
   state.selectedConnector = feature;
+  state.contextConnector = feature;
   state.pendingNode = null;
   state.dirty = false;
   updateInspector(feature.properties);
@@ -696,7 +830,7 @@ function updateAddModeUi() {
 
 async function addConnectorToNode(feature) {
   const nodeId = feature.properties.NODE_ID_TEXT;
-  await getJson("/api/add-connector", {
+  const result = await getJson("/api/add-connector", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -705,6 +839,7 @@ async function addConnectorToNode(feature) {
       note: qs("qcNote").value,
     }),
   });
+  updateHistoryButtons(result);
   state.addMode = false;
   updateAddModeUi();
   toast(`Added CC to node ${nodeId}.`);
@@ -727,7 +862,7 @@ async function saveEdit() {
     toast("Select a connector and snap it to a new node first.");
     return;
   }
-  await getJson("/api/save-edit", {
+  const result = await getJson("/api/save-edit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -736,18 +871,77 @@ async function saveEdit() {
       note: qs("qcNote").value,
     }),
   });
+  updateHistoryButtons(result);
   state.dirty = false;
   toast("Saved.");
   await goToTaz(state.currentTazId);
 }
 
 async function markReviewed() {
-  await getJson("/api/mark-reviewed", {
+  const result = await getJson("/api/mark-reviewed", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tazId: state.currentTazId, note: qs("qcNote").value }),
   });
+  updateHistoryButtons(result);
   toast("Marked reviewed.");
+  await goToTaz(state.currentTazId, { keepView: true });
+}
+
+async function deleteSelectedConnector() {
+  const connector = state.contextConnector || state.selectedConnector;
+  if (!connector) {
+    toast("Right-click a connector first.");
+    return;
+  }
+  const ccPt = connector.properties.CC_PT;
+  const result = await getJson("/api/delete-connector", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ccPt }),
+  });
+  updateHistoryButtons(result);
+  state.selectedConnector = null;
+  state.contextConnector = null;
+  state.pendingNode = null;
+  state.dirty = false;
+  toast(`Deleted ${ccPt}.`);
+  await goToTaz(state.currentTazId, { keepView: true });
+}
+
+async function undoEdit() {
+  try {
+    const result = await getJson("/api/undo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    updateHistoryButtons(result);
+    toast("Edit undone.");
+    await goToTaz(state.currentTazId, { keepView: true });
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function redoEdit() {
+  try {
+    const result = await getJson("/api/redo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    updateHistoryButtons(result);
+    toast("Edit redone.");
+    await goToTaz(state.currentTazId, { keepView: true });
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function updateHistoryButtons(payload = {}) {
+  qs("undoBtn").disabled = !payload.canUndo;
+  qs("redoBtn").disabled = !payload.canRedo;
 }
 
 async function showCubePath() {
@@ -758,7 +952,9 @@ async function showCubePath() {
 function clearSelection() {
   state.selectedConnector = null;
   state.pendingNode = null;
+  state.contextConnector = null;
   state.dirty = false;
+  hideContextMenu();
   qs("ccPt").textContent = "Select a connector";
   qs("currentNode").textContent = "-";
   qs("newNode").textContent = "-";
@@ -767,6 +963,22 @@ function clearSelection() {
   qs("lineNodeDist").textContent = "-";
   qs("dirtyBadge").classList.add("hidden");
   if (state.payload) draw();
+}
+
+function showContextMenu(clientX, clientY, connector) {
+  state.contextConnector = connector;
+  const menu = qs("ccContextMenu");
+  menu.classList.remove("hidden");
+  const parent = state.canvas.parentElement.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const left = Math.min(clientX - parent.left, parent.width - menuRect.width - 8);
+  const top = Math.min(clientY - parent.top, parent.height - menuRect.height - 8);
+  menu.style.left = `${Math.max(8, left)}px`;
+  menu.style.top = `${Math.max(8, top)}px`;
+}
+
+function hideContextMenu() {
+  qs("ccContextMenu").classList.add("hidden");
 }
 
 function geojsonBounds(collection) {

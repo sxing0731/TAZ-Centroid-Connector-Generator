@@ -141,6 +141,8 @@ class QAQCDataStore:
         self.flags = gpd.read_file(self.gpkg, layer="taz_snap_flags")
         self.selected_points = gpd.read_file(self.gpkg, layer="final_selected_boundary_points")
         self.lines = gpd.read_file(self.gpkg, layer="final_connector_lines")
+        self.undo_stack: list[gpd.GeoDataFrame] = []
+        self.redo_stack: list[gpd.GeoDataFrame] = []
         self._prepare_ids()
         self.here_fields = _display_fields(
             self.here_links,
@@ -199,6 +201,8 @@ class QAQCDataStore:
             "count": len(order),
             "tazOrder": order,
             "firstTaz": order[0]["id"] if order else None,
+            "canUndo": bool(self.undo_stack),
+            "canRedo": bool(self.redo_stack),
         }
 
     def all_taz(self) -> dict:
@@ -278,6 +282,7 @@ class QAQCDataStore:
         matches = self.lines.index[self.lines["CC_PT"] == cc_pt].tolist()
         if not matches:
             raise ValueError(f"Connector {cc_pt} not found")
+        self._push_history()
         index = matches[0]
         taz_id = self.lines.at[index, "TAZ_ID_TEXT"]
         centroid = self._centroid_lookup.loc[taz_id]
@@ -300,7 +305,7 @@ class QAQCDataStore:
         self.lines.at[index, "QC_NOTE"] = note
         self.lines.at[index, "QC_TIME"] = datetime.now().isoformat(timespec="seconds")
         self._write_outputs()
-        return {"ok": True, "tazId": taz_id, "ccPt": cc_pt, "nodeId": node_id}
+        return {"ok": True, "tazId": taz_id, "ccPt": cc_pt, "nodeId": node_id, **self.history_state()}
 
     def add_connector(self, payload: dict) -> dict:
         taz_id = _id_text(payload.get("tazId", ""))
@@ -316,6 +321,7 @@ class QAQCDataStore:
         if not bool(node_row["SNAP_ELIG"]):
             raise ValueError(f"Node {node_id} is not eligible; only MAJOR_LEVEL 4/5 is allowed")
 
+        self._push_history()
         centroid = self._centroid_lookup.loc[taz_id]
         node = node_row.geometry
         polygon = self._taz_lookup.loc[taz_id].geometry
@@ -358,7 +364,7 @@ class QAQCDataStore:
             crs=self.lines.crs,
         )
         self._write_outputs()
-        return {"ok": True, "tazId": taz_id, "ccPt": cc_pt, "nodeId": node_id}
+        return {"ok": True, "tazId": taz_id, "ccPt": cc_pt, "nodeId": node_id, **self.history_state()}
 
     def _next_added_cc_pt(self, taz_id: str) -> str:
         prefix = f"{taz_id}_ADD"
@@ -369,12 +375,51 @@ class QAQCDataStore:
         return f"{prefix}{index}"
 
     def mark_reviewed(self, taz_id: str, note: str = "") -> dict:
+        self._push_history()
         mask = self.lines["TAZ_ID_TEXT"] == taz_id
         self.lines.loc[mask & (self.lines["QC_STATUS"] != "edited"), "QC_STATUS"] = "reviewed"
         self.lines.loc[mask, "QC_NOTE"] = note
         self.lines.loc[mask, "QC_TIME"] = datetime.now().isoformat(timespec="seconds")
         self._write_outputs()
-        return {"ok": True, "tazId": taz_id}
+        return {"ok": True, "tazId": taz_id, **self.history_state()}
+
+    def delete_connector(self, payload: dict) -> dict:
+        cc_pt = str(payload.get("ccPt", ""))
+        if not cc_pt:
+            raise ValueError("ccPt is required")
+        matches = self.lines.index[self.lines["CC_PT"] == cc_pt].tolist()
+        if not matches:
+            raise ValueError(f"Connector {cc_pt} not found")
+        self._push_history()
+        taz_id = self.lines.at[matches[0], "TAZ_ID_TEXT"]
+        self.lines = self.lines.drop(index=matches).reset_index(drop=True)
+        self._write_outputs()
+        return {"ok": True, "tazId": taz_id, "ccPt": cc_pt, **self.history_state()}
+
+    def _push_history(self) -> None:
+        self.undo_stack.append(self.lines.copy(deep=True))
+        if len(self.undo_stack) > 80:
+            self.undo_stack.pop(0)
+        self.redo_stack.clear()
+
+    def history_state(self) -> dict:
+        return {"canUndo": bool(self.undo_stack), "canRedo": bool(self.redo_stack)}
+
+    def undo(self) -> dict:
+        if not self.undo_stack:
+            raise ValueError("No edit to undo")
+        self.redo_stack.append(self.lines.copy(deep=True))
+        self.lines = self.undo_stack.pop().copy(deep=True)
+        self._write_outputs()
+        return {"ok": True, **self.history_state()}
+
+    def redo(self) -> dict:
+        if not self.redo_stack:
+            raise ValueError("No edit to redo")
+        self.undo_stack.append(self.lines.copy(deep=True))
+        self.lines = self.redo_stack.pop().copy(deep=True)
+        self._write_outputs()
+        return {"ok": True, **self.history_state()}
 
     def _write_outputs(self) -> None:
         out = self.run_folder
@@ -434,8 +479,14 @@ def make_handler(store: QAQCDataStore):
                     _json_response(self, store.save_edit(payload))
                 elif self.path == "/api/add-connector":
                     _json_response(self, store.add_connector(payload))
+                elif self.path == "/api/delete-connector":
+                    _json_response(self, store.delete_connector(payload))
                 elif self.path == "/api/mark-reviewed":
                     _json_response(self, store.mark_reviewed(str(payload.get("tazId", "")), str(payload.get("note", ""))))
+                elif self.path == "/api/undo":
+                    _json_response(self, store.undo())
+                elif self.path == "/api/redo":
+                    _json_response(self, store.redo())
                 else:
                     _error(self, f"Unknown endpoint {self.path}", status=404)
             except Exception as exc:

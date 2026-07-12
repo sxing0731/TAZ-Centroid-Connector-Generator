@@ -17,6 +17,8 @@
       </div>
       <button id="prevBtn">Previous TAZ</button>
       <button id="nextBtn">Next TAZ</button>
+      <button id="undoBtn" disabled>Undo Edit</button>
+      <button id="redoBtn" disabled>Redo Edit</button>
       <button id="saveBtn" class="primary">Save Edit</button>
       <button id="addCcBtn">Add CC</button>
       <button id="reviewedBtn">Mark Reviewed</button>
@@ -42,6 +44,13 @@
 
       <section class="map-wrap">
         <canvas id="mapCanvas"></canvas>
+        <label class="basemap-control">Basemap
+          <select id="basemapSelect">
+            <option value="none">None</option>
+            <option value="road" selected>Road</option>
+            <option value="satellite">Satellite</option>
+          </select>
+        </label>
         <div class="map-help">Wheel: zoom | Drag empty map: pan | Click CC: select | Drag orange endpoint: snap</div>
         <div class="legend">
           <div class="legend-title">Legend</div>
@@ -55,6 +64,10 @@
           <div class="legend-row"><span class="swatch star">*</span>Centroid</div>
         </div>
         <div id="featureTooltip" class="feature-tooltip hidden"></div>
+        <div id="ccContextMenu" class="context-menu hidden">
+          <button id="ctxAddCcBtn">Add new CC</button>
+          <button id="ctxDeleteCcBtn" class="danger">Delete this CC</button>
+        </div>
         <div id="toast" class="toast hidden"></div>
       </section>
 
@@ -86,6 +99,7 @@
       <span>Snap target: MAJOR_LEVEL 4/5 only</span>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
