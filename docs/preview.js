@@ -1,5 +1,60 @@
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
+const preview = {
+  tazIds: ["1258", "1259", "1260", "1261", "1263"],
+  index: 2,
+  addMode: false,
+};
+
+function qs(id) {
+  return document.getElementById(id);
+}
+
+function showToast(message) {
+  const toast = qs("toast");
+  toast.textContent = message;
+  toast.style.display = "block";
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => {
+    toast.textContent = "Public page is a static preview. Local QAQC runs at http://127.0.0.1:8765.";
+  }, 2600);
+}
+
+function setCurrentTaz(index) {
+  preview.index = Math.max(0, Math.min(preview.tazIds.length - 1, index));
+  const taz = preview.tazIds[preview.index];
+  qs("jumpInput").value = taz;
+  document.querySelectorAll(".queue-item").forEach((item, itemIndex) => {
+    item.classList.toggle("active", itemIndex === preview.index);
+    if (itemIndex === preview.index) item.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  });
+  document.querySelector(".inspector dd").textContent = taz;
+  resize();
+  showToast(`Preview TAZ ${taz}. Run locally for live data and saving.`);
+}
+
+function bindPreviewControls() {
+  qs("prevBtn").addEventListener("click", () => setCurrentTaz(preview.index - 1));
+  qs("nextBtn").addEventListener("click", () => setCurrentTaz(preview.index + 1));
+  qs("jumpBtn").addEventListener("click", () => {
+    const value = qs("jumpInput").value.trim();
+    const index = preview.tazIds.indexOf(value);
+    if (index >= 0) setCurrentTaz(index);
+    else showToast(`TAZ ${value || "(blank)"} is not in this static sample.`);
+  });
+  qs("saveBtn").addEventListener("click", () => showToast("Save Edit requires the local Python QAQC server."));
+  qs("reviewedBtn").addEventListener("click", () => showToast("Mark Reviewed requires the local Python QAQC server."));
+  qs("cubeBtn").addEventListener("click", () => showToast("Cube DBF export is available in the local QAQC app."));
+  qs("addCcBtn").addEventListener("click", () => {
+    preview.addMode = !preview.addMode;
+    qs("addCcBtn").classList.toggle("active", preview.addMode);
+    qs("addCcBtn").textContent = preview.addMode ? "Adding CC..." : "Add CC";
+    showToast(preview.addMode ? "Preview add mode. Local app lets you tap a non-major node." : "Add CC preview mode off.");
+  });
+  document.querySelectorAll(".queue-item").forEach((item, index) => {
+    item.addEventListener("click", () => setCurrentTaz(index));
+  });
+}
 
 function resize() {
   const rect = canvas.parentElement.getBoundingClientRect();
@@ -113,7 +168,7 @@ function draw(width, height) {
   ctx.font = `700 ${Math.max(22, 34 * scale)}px Arial`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("1260", cx, cy - 92 * scale);
+  ctx.fillText(preview.tazIds[preview.index], cx, cy - 92 * scale);
   ctx.restore();
 
   ctx.save();
@@ -126,4 +181,5 @@ function draw(width, height) {
 }
 
 window.addEventListener("resize", resize);
+bindPreviewControls();
 resize();

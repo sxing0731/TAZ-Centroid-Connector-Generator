@@ -82,13 +82,20 @@ button {
   border-radius: 6px;
   background: #fff;
   color: var(--text);
-  cursor: default;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
 button.primary {
   background: #0057b8;
   color: #fff;
   border-color: #0057b8;
+}
+
+button.active {
+  border-color: var(--orange);
+  background: #fff3e0;
+  color: #a34700;
 }
 
 .jump {
