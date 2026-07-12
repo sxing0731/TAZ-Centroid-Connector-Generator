@@ -16,6 +16,8 @@ const state = {
   isPanning: false,
   isDraggingEndpoint: false,
   dragStart: null,
+  activePointerId: null,
+  lastTapAt: 0,
   hoverFeature: null,
   layers: {
     allTaz: true,
@@ -112,11 +114,18 @@ function bindCanvas() {
     const factor = event.deltaY < 0 ? 0.82 : 1.22;
     zoomAt(event.offsetX, event.offsetY, factor);
   });
-  state.canvas.addEventListener("mousedown", (event) => {
-    const pt = { x: event.offsetX, y: event.offsetY };
+  state.canvas.addEventListener("dblclick", (event) => {
+    const pt = eventPoint(event);
+    zoomAt(pt.x, pt.y, 0.72);
+  });
+  state.canvas.addEventListener("pointerdown", (event) => {
+    const pt = eventPoint(event);
+    state.activePointerId = event.pointerId;
+    state.canvas.setPointerCapture(event.pointerId);
     if (state.selectedConnector && endpointHit(pt)) {
       state.isDraggingEndpoint = true;
       state.canvas.classList.add("dragging");
+      event.preventDefault();
       return;
     }
     const connector = findConnectorAt(pt);
@@ -124,41 +133,65 @@ function bindCanvas() {
       state.addMode = false;
       updateAddModeUi();
       selectConnector(connector);
+      event.preventDefault();
       return;
     }
     const node = findNodeAt(pt);
     if (node && state.addMode) {
       addConnectorToNode(node);
+      event.preventDefault();
       return;
     }
     if (node && state.selectedConnector) {
       setPendingNode(node);
+      event.preventDefault();
       return;
     }
+    const now = Date.now();
+    if (event.pointerType === "touch" && now - state.lastTapAt < 320) {
+      zoomAt(pt.x, pt.y, 0.78);
+      state.lastTapAt = 0;
+      event.preventDefault();
+      return;
+    }
+    state.lastTapAt = now;
     state.isPanning = true;
     state.dragStart = pt;
     state.canvas.classList.add("panning");
+    event.preventDefault();
   });
-  window.addEventListener("mousemove", (event) => {
-    const rect = state.canvas.getBoundingClientRect();
-    const pt = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  state.canvas.addEventListener("pointermove", (event) => {
+    if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
+    const pt = eventPoint(event);
     if (state.isDraggingEndpoint) {
       const node = nearestEligibleNode(pt);
       state.pendingNode = node;
       updateInspector(state.selectedConnector.properties);
       draw(pt);
+      event.preventDefault();
       return;
     }
     if (state.isPanning && state.dragStart) {
       panBy(pt.x - state.dragStart.x, pt.y - state.dragStart.y);
       state.dragStart = pt;
       hideFeatureTooltip();
+      event.preventDefault();
       return;
     }
-    updateHover(pt);
+    if (event.pointerType === "mouse") updateHover(pt);
   });
   state.canvas.addEventListener("mouseleave", hideFeatureTooltip);
-  window.addEventListener("mouseup", (event) => {
+  state.canvas.addEventListener("pointerup", finishPointerGesture);
+  state.canvas.addEventListener("pointercancel", finishPointerGesture);
+}
+
+function eventPoint(event) {
+  const rect = state.canvas.getBoundingClientRect();
+  return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+}
+
+function finishPointerGesture(event) {
+  if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
     if (state.isDraggingEndpoint) {
       if (state.pendingNode) {
         state.dirty = true;
@@ -173,8 +206,12 @@ function bindCanvas() {
     }
     state.isPanning = false;
     state.dragStart = null;
+    state.activePointerId = null;
     state.canvas.classList.remove("panning");
-  });
+    state.canvas.classList.remove("dragging");
+    if (event.pointerId !== undefined && state.canvas.hasPointerCapture(event.pointerId)) {
+      state.canvas.releasePointerCapture(event.pointerId);
+    }
 }
 
 function renderQueue() {
