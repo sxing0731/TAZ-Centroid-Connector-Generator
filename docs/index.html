@@ -12,7 +12,7 @@
         <div class="brand-mark">CC</div>
         <div>
           <strong>TAZ Connector QAQC</strong>
-          <span>GitHub Pages static preview</span>
+          <span id="runFolder">Loading public data...</span>
         </div>
       </div>
       <button id="prevBtn">Previous TAZ</button>
@@ -20,10 +20,10 @@
       <button id="saveBtn" class="primary">Save Edit</button>
       <button id="addCcBtn">Add CC</button>
       <button id="reviewedBtn">Mark Reviewed</button>
-      <label class="jump">Jump to TAZ <input id="jumpInput" value="1260" /></label>
+      <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
       <button id="jumpBtn">Go</button>
       <button id="cubeBtn">Cube DBF</button>
-      <div id="dirtyBadge" class="badge">Preview only</div>
+      <div id="dirtyBadge" class="badge hidden">Unsaved edit</div>
     </header>
 
     <main class="layout">
@@ -31,89 +31,60 @@
         <div class="panel-head">
           <h2>TAZ Queue</h2>
           <select id="queueFilter">
-            <option>All</option>
-            <option>Flagged</option>
-            <option>Unreviewed</option>
-            <option>Edited</option>
+            <option value="all">All</option>
+            <option value="flagged">Flagged</option>
+            <option value="unreviewed">Unreviewed</option>
+            <option value="edited">Edited</option>
+            <option value="reviewed">Reviewed</option>
           </select>
         </div>
-        <div class="queue">
-          <div class="queue-item">
-            <strong>1258</strong>
-            <small>Long connector</small>
-            <span class="pill flagged">FLAGGED</span>
-          </div>
-          <div class="queue-item edited">
-            <strong>1259</strong>
-            <small>Updated connector</small>
-            <span class="pill edited">EDITED</span>
-          </div>
-          <div class="queue-item active">
-            <strong>1260</strong>
-            <small>Connector adjusted</small>
-            <span class="pill edited">EDITED</span>
-          </div>
-          <div class="queue-item reviewed">
-            <strong>1261</strong>
-            <small>Looks good</small>
-            <span class="pill reviewed">REVIEWED</span>
-          </div>
-          <div class="queue-item">
-            <strong>1263</strong>
-            <small>Outside length high</small>
-            <span class="pill flagged">FLAGGED</span>
-          </div>
-        </div>
+        <div id="queueList" class="queue"></div>
       </aside>
 
       <section class="map-wrap">
         <canvas id="mapCanvas"></canvas>
-        <div class="map-help">Static preview | Run locally for live TAZ data, snapping, saving, and DBF export</div>
+        <div class="map-help">Wheel/double tap: zoom | Drag map: pan | Click CC: select | Drag endpoint: snap</div>
         <div class="legend">
           <div class="legend-title">Legend</div>
-          <label><input type="checkbox" checked disabled /><span class="swatch poly all"></span>TAZ Polygons</label>
-          <label><input type="checkbox" checked disabled /><span class="swatch dashed"></span>1-mile Context</label>
-          <label><input type="checkbox" checked disabled /><span class="swatch line here"></span>HERE Master Links</label>
-          <label><input type="checkbox" checked disabled /><span class="swatch line gstdm"></span>GSTDM Links</label>
-          <label><input type="checkbox" checked disabled /><span class="swatch dot major"></span>Major Node</label>
-          <label><input type="checkbox" checked disabled /><span class="swatch dot nonmajor"></span>Non-Major Node</label>
-          <label><input type="checkbox" checked disabled /><span class="swatch line cc"></span>Centroid Connector</label>
+          <label><input type="checkbox" data-layer="allTaz" checked /><span class="swatch poly all"></span>TAZ Polygons</label>
+          <label><input type="checkbox" data-layer="gstdm" checked /><span class="swatch line gstdm"></span>GSTDM Links</label>
+          <label><input type="checkbox" data-layer="nodes" checked /><span class="swatch dot major"></span>Major Node</label>
+          <label><input type="checkbox" data-layer="nodes" checked /><span class="swatch dot nonmajor"></span>Non-Major Node</label>
+          <label><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Centroid Connector</label>
           <div class="legend-row"><span class="swatch star">*</span>Centroid</div>
         </div>
         <div id="featureTooltip" class="feature-tooltip hidden"></div>
-        <div id="toast" class="toast">
-          Public page is a static preview. Local QAQC runs at http://127.0.0.1:8765.
-        </div>
+        <div id="toast" class="toast hidden"></div>
       </section>
 
       <aside class="inspector">
         <div class="panel-head">
           <h2>Selected Connector</h2>
-          <button title="Clear selection">x</button>
+          <button id="clearBtn" title="Clear selection">x</button>
         </div>
         <dl>
-          <dt>Current TAZ</dt><dd>1260</dd>
-          <dt>CC_PT</dt><dd>1260_17</dd>
-          <dt>Current Node</dt><dd>N 3029184</dd>
-          <dt>New Node</dt><dd class="orange">N 3029441</dd>
-          <dt>MAJOR_LEVEL</dt><dd>4</dd>
-          <dt>OUTSIDE_LEN</dt><dd>742.48 ft</dd>
-          <dt>LINE_NODE_DIST</dt><dd>58.31 ft</dd>
+          <dt>Current TAZ</dt><dd id="currentTaz">-</dd>
+          <dt>CC_PT</dt><dd id="ccPt">Select a connector</dd>
+          <dt>Current Node</dt><dd id="currentNode">-</dd>
+          <dt>New Node</dt><dd id="newNode">-</dd>
+          <dt>MAJOR_LEVEL</dt><dd id="majorLevel">-</dd>
+          <dt>OUTSIDE_LEN</dt><dd id="outsideLen">-</dd>
+          <dt>LINE_NODE_DIST</dt><dd id="lineNodeDist">-</dd>
         </dl>
         <label class="note-label">QC Note</label>
-        <textarea maxlength="250">Static preview of the QAQC review screen.</textarea>
+        <textarea id="qcNote" maxlength="250" placeholder="Optional note"></textarea>
         <div class="hint">
-          This GitHub Pages view cannot read local GIS data or write QAQC edits.
-          Start the local Python server for full connector review.
+          Public GitHub Pages version uses non-HERE static data and saves edits in this browser.
+          Export Cube DBF before clearing browser storage.
         </div>
       </aside>
     </main>
 
     <footer class="statusbar">
-      <span>Repository: sxing0731/TAZ-Centroid-Connector-Generator</span>
-      <span>Snap target: MAJOR_LEVEL 4/5 only</span>
+      <span id="statusText">Initializing...</span>
+      <span>Public dynamic mode: no HERE links, browser-local edits</span>
     </footer>
 
-    <script src="preview.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>
