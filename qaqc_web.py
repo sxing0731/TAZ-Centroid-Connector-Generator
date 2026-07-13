@@ -184,17 +184,33 @@ class QAQCDataStore:
 
     def state(self) -> dict:
         summary = self.lines.groupby("TAZ_ID_TEXT").size().to_dict()
+        status_lookup = (
+            self.lines.groupby("TAZ_ID_TEXT")["QC_STATUS"]
+            .apply(lambda values: {str(value).lower() for value in values if str(value)})
+            .to_dict()
+        )
         flag_lookup = self.flags.set_index("TAZ_ID_TEXT")["SNAP_FLAG"].to_dict()
         issue_lookup = self.flags.set_index("TAZ_ID_TEXT")["SNAP_ISSUE"].to_dict()
         order = []
         for _, row in self.taz.iterrows():
             taz_id = row["TAZ_ID_TEXT"]
+            connectors = int(summary.get(taz_id, 0))
+            statuses = status_lookup.get(taz_id, set())
+            reviewed = connectors > 0 and bool(statuses) and "unreviewed" not in statuses
+            if connectors == 0:
+                queue_status = "flag_no_cc"
+            elif reviewed:
+                queue_status = "reviewed"
+            else:
+                queue_status = "taz"
             order.append(
                 {
                     "id": taz_id,
-                    "connectors": int(summary.get(taz_id, 0)),
+                    "connectors": connectors,
                     "flag": str(flag_lookup.get(taz_id, "N")),
                     "issue": str(issue_lookup.get(taz_id, "")),
+                    "queueStatus": queue_status,
+                    "reviewed": reviewed,
                 }
             )
         order.sort(key=lambda item: (item["flag"] != "Y", item["issue"] != "BELOW_TARGET_CONNECTORS", item["id"]))

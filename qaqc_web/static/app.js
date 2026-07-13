@@ -261,19 +261,26 @@ function renderQueue() {
   list.innerHTML = "";
   state.tazOrder
     .filter((item) => {
-      if (filter === "flagged") return item.flag === "Y";
+      if (filter !== "all") return item.queueStatus === filter;
       return true;
     })
     .forEach((item) => {
       const row = document.createElement("div");
       row.className = `queue-item ${item.id === state.currentTazId ? "active" : ""}`;
+      const status = queueStatusDisplay(item);
       row.innerHTML = `
         <div><strong>${item.id}</strong><br><small>${item.issue || "Ready"} | ${item.connectors} CC</small></div>
-        <span class="pill ${item.flag === "Y" ? "flag" : ""}">${item.flag === "Y" ? "FLAG" : "TAZ"}</span>
+        <span class="pill ${status.className}">${status.label}</span>
       `;
       row.addEventListener("click", () => goToTaz(item.id));
       list.appendChild(row);
     });
+}
+
+function queueStatusDisplay(item) {
+  if (item.queueStatus === "flag_no_cc") return { label: "NO CC", className: "flag" };
+  if (item.queueStatus === "reviewed") return { label: "REVIEWED", className: "reviewed" };
+  return { label: "TAZ", className: "" };
 }
 
 async function goToTaz(id, options = {}) {
