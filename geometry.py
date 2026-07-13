@@ -172,6 +172,10 @@ def _snap_level_allowed(level: object, config: ProcessingConfig) -> bool:
     return pd.notna(level) and int(level) > config.blocked_major_level
 
 
+def _major_intersection_flag(level: object, config: ProcessingConfig) -> str:
+    return "Y" if pd.notna(level) and int(level) <= config.blocked_major_level else "N"
+
+
 def attach_node_major_levels(
     nodes: gpd.GeoDataFrame,
     gstdm_links: gpd.GeoDataFrame,
@@ -203,7 +207,7 @@ def attach_node_major_levels(
     result = nodes.copy()
     result["MAJOR_LEVEL"] = result[fields.node_id].map(level_lookup)
     result["MAJOR_INT"] = result["MAJOR_LEVEL"].map(
-        lambda level: "Y" if pd.notna(level) and int(level) <= 3 else "N"
+        lambda level: _major_intersection_flag(level, config)
     )
     return result
 
@@ -228,7 +232,7 @@ def match_candidates_to_nodes(
     major_ints = (
         nodes["MAJOR_INT"].tolist()
         if "MAJOR_INT" in nodes.columns
-        else ["Y" if pd.notna(level) and int(level) <= 3 else "N" for level in major_levels]
+        else [_major_intersection_flag(level, config) for level in major_levels]
     )
     node_tree = STRtree(node_geometries) if node_geometries else None
     matched_node_indices: list[int] = []
@@ -239,6 +243,7 @@ def match_candidates_to_nodes(
     matched_major_ints: list[str] = []
     snap_allowed: list[bool] = []
     fail_reasons: list[str] = []
+    snap_fallbacks: list[bool] = []
 
     def level_is_allowed(index: int) -> bool:
         return _snap_level_allowed(major_levels[index], config)
@@ -252,6 +257,45 @@ def match_candidates_to_nodes(
         matched_major_ints.append("N")
         snap_allowed.append(False)
         fail_reasons.append(reason)
+        snap_fallbacks.append(False)
+
+    allowed_indices = [
+        index for index in range(len(node_geometries)) if level_is_allowed(index)
+    ]
+
+    def choose_best_node(
+        row,
+        center: Point,
+        candidate_indices: list[tuple[int, float]],
+        require_sector: bool,
+        enforce_snap_distance: bool,
+    ) -> tuple[float, float, float, int] | None:
+        radial_line = LineString([center, row.geometry])
+        start = getattr(row, "ANGLE_START", None)
+        end = getattr(row, "ANGLE_END", None)
+        best: tuple[float, float, float, int] | None = None
+        for index, boundary_distance in candidate_indices:
+            node_geometry = node_geometries[index]
+            node_angle = bearing_degrees(center, node_geometry)
+            if (
+                require_sector
+                and start is not None
+                and end is not None
+                and not _angle_in_sector(node_angle, float(start), float(end))
+            ):
+                continue
+            line_distance = float(radial_line.distance(node_geometry))
+            candidate_distance = float(row.geometry.distance(node_geometry))
+            if (
+                enforce_snap_distance
+                and config.maximum_snap_distance is not None
+                and candidate_distance > config.maximum_snap_distance
+            ):
+                continue
+            key = (line_distance, candidate_distance, boundary_distance, index)
+            if best is None or key < best:
+                best = key
+        return best
 
     for taz_id, group in candidates.groupby("N", sort=False):
         if node_tree is None:
@@ -265,7 +309,7 @@ def match_candidates_to_nodes(
         nearby_indices = [
             int(index)
             for index in node_tree.query(query_zone, predicate="intersects")
-        ]
+            ]
         nearby_allowed: list[tuple[int, float]] = []
         for index in nearby_indices:
             if not level_is_allowed(index):
@@ -274,36 +318,37 @@ def match_candidates_to_nodes(
             if boundary_distance <= config.boundary_endpoint_tolerance:
                 nearby_allowed.append((index, boundary_distance))
 
-        if not nearby_allowed:
+        if not nearby_allowed and not allowed_indices:
             for _ in group.itertuples():
-                append_no_match("NO_ALLOWED_NODE_WITHIN_BOUNDARY_TOLERANCE")
+                append_no_match("NO_ALLOWED_NODE")
             continue
+
+        fallback_allowed = [
+            (index, float(node_geometries[index].distance(boundary)))
+            for index in allowed_indices
+        ]
 
         for row in group.itertuples():
             center = centroid_lookup.loc[row.N]
-            radial_line = LineString([center, row.geometry])
-            start = getattr(row, "ANGLE_START", None)
-            end = getattr(row, "ANGLE_END", None)
-            best: tuple[float, float, float, int] | None = None
-            for index, boundary_distance in nearby_allowed:
-                node_geometry = node_geometries[index]
-                node_angle = bearing_degrees(center, node_geometry)
-                if start is not None and end is not None and not _angle_in_sector(
-                    node_angle, float(start), float(end)
-                ):
-                    continue
-                line_distance = float(radial_line.distance(node_geometry))
-                candidate_distance = float(row.geometry.distance(node_geometry))
-                if (
-                    config.maximum_snap_distance is not None
-                    and candidate_distance > config.maximum_snap_distance
-                ):
-                    continue
-                key = (line_distance, candidate_distance, boundary_distance, index)
-                if best is None or key < best:
-                    best = key
+            best = choose_best_node(
+                row,
+                center,
+                nearby_allowed,
+                require_sector=True,
+                enforce_snap_distance=True,
+            )
+            used_fallback = False
             if best is None:
-                append_no_match("NO_ALLOWED_NODE_IN_SECTOR_WITHIN_BOUNDARY_TOLERANCE")
+                best = choose_best_node(
+                    row,
+                    center,
+                    fallback_allowed,
+                    require_sector=False,
+                    enforce_snap_distance=False,
+                )
+                used_fallback = best is not None
+            if best is None:
+                append_no_match("NO_ALLOWED_NODE")
                 continue
             line_distance, candidate_distance, boundary_distance, node_index = best
             matched_node_indices.append(node_index)
@@ -313,7 +358,8 @@ def match_candidates_to_nodes(
             matched_major_levels.append(major_levels[node_index])
             matched_major_ints.append(major_ints[node_index])
             snap_allowed.append(True)
-            fail_reasons.append("")
+            fail_reasons.append("FALLBACK_NEAREST_ALLOWED_NODE" if used_fallback else "")
+            snap_fallbacks.append(used_fallback)
 
     result = candidates.copy()
     result["MATCH_NODE_IDX"] = matched_node_indices
@@ -324,6 +370,7 @@ def match_candidates_to_nodes(
     result["MAJOR_INT"] = matched_major_ints
     result["SNAP_ALLOWED"] = snap_allowed
     result["SNAP_FAIL_REASON"] = fail_reasons
+    result["SNAP_FALLBACK"] = snap_fallbacks
     return result
 
 
@@ -355,7 +402,7 @@ def snap_candidates_to_nodes(
     major_ints = (
         nodes["MAJOR_INT"].tolist()
         if "MAJOR_INT" in nodes.columns
-        else ["Y" if pd.notna(level) and int(level) <= 3 else "N" for level in major_levels]
+        else [_major_intersection_flag(level, config) for level in major_levels]
     )
     polygon_lookup = taz.set_index(config.fields.taz_id).geometry
     point_records: list[dict[str, object]] = []
@@ -409,6 +456,7 @@ def snap_candidates_to_nodes(
             "MAJOR_INT": major_int,
             "SNAP_ALLOWED": bool(level_allowed and match_allowed),
             "SNAP_FAIL_REASON": getattr(row, "SNAP_FAIL_REASON", ""),
+            "SNAP_FALLBACK": bool(getattr(row, "SNAP_FALLBACK", False)),
             "END_BND_DIST": boundary_distance,
             "END_ON_BND": boundary_distance <= config.boundary_endpoint_tolerance,
             "CROSSES_TAZ": outside_length > 1e-6,

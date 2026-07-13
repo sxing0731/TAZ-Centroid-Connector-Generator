@@ -92,6 +92,9 @@ function bindControls() {
   document.addEventListener("click", (event) => {
     if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
   });
+  document.addEventListener("pointerdown", (event) => {
+    if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideContextMenu();
   });
@@ -132,6 +135,7 @@ function bindCanvas() {
     zoomAt(pt.x, pt.y, 0.72);
   });
   state.canvas.addEventListener("pointerdown", (event) => {
+    hideContextMenu();
     const pt = eventPoint(event);
     state.activePointerId = event.pointerId;
     state.canvas.setPointerCapture(event.pointerId);
@@ -736,7 +740,7 @@ function selectConnector(c) {
 
 function setPendingNode(n) {
   if (!n.eligible) {
-    toast("Major node is locked. Choose MAJOR_LEVEL 4/5.");
+    toast("Major node is locked. Choose MAJOR_LEVEL 3/4/5.");
     return;
   }
   state.pendingNode = n;

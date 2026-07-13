@@ -86,7 +86,7 @@ Current node ID mapping:
 - `SNAP_OK`: maximum snap-distance result
 - `LINE_NODE_DIST`: snapped-node distance to candidate radial line
 - `MAJOR_LEVEL`: highest GSTDM functional class touching snapped node
-- `MAJOR_INT`: `Y` when `MAJOR_LEVEL` is 1, 2, or 3; otherwise `N`
+- `MAJOR_INT`: `Y` when `MAJOR_LEVEL` is 1 or 2; otherwise `N`
 - `SNAP_ALLOWED`: snapped node is below the blocked major-level threshold
 - `END_BND_DIST`: snapped-node distance from parent TAZ boundary
 - `END_ON_BND`: endpoint falls within the boundary tolerance

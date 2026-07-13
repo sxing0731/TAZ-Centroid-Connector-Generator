@@ -35,6 +35,6 @@ def default_config(output_folder: str | Path | None = None) -> ProcessingConfig:
         minimum_connector_count=2,
         minimum_angle=60.0,
         maximum_snap_distance=None,
-        blocked_major_level=3,
+        blocked_major_level=2,
         boundary_endpoint_tolerance=200.0,
     )

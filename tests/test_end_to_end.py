@@ -93,7 +93,7 @@ def test_complete_workflow_and_exports(tmp_path) -> None:
     assert "SNAP_FAIL_REASON" in layers["final_connector_lines"].columns
     assert layers["final_connector_lines"]["SNAP_ALLOWED"].all()
     assert layers["final_connector_lines"]["END_ON_BND"].all()
-    assert not (layers["final_connector_lines"]["MAJOR_LEVEL"].fillna(0) <= 3).any()
+    assert not (layers["final_connector_lines"]["MAJOR_LEVEL"].fillna(0) <= 2).any()
     assert run_output.parent == output
     assert run_output.name.startswith("run_")
     assert (run_output / "taz_centroid_connectors.gpkg").exists()

@@ -124,6 +124,9 @@ function bindControls() {
   document.addEventListener("click", (event) => {
     if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
   });
+  document.addEventListener("pointerdown", (event) => {
+    if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideContextMenu();
   });
@@ -169,6 +172,7 @@ function bindCanvas() {
     zoomAt(pt.x, pt.y, 0.72);
   });
   state.canvas.addEventListener("pointerdown", (event) => {
+    hideContextMenu();
     const pt = eventPoint(event);
     state.activePointerId = event.pointerId;
     state.canvas.setPointerCapture(event.pointerId);

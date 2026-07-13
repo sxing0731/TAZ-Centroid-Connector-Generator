@@ -34,7 +34,7 @@ class ProcessingConfig:
     minimum_connector_count: int = 2
     minimum_angle: float = 60.0
     maximum_snap_distance: float | None = None
-    blocked_major_level: int = 3
+    blocked_major_level: int = 2
     boundary_endpoint_tolerance: float = 200.0
     output_format: str = "GPKG"
 

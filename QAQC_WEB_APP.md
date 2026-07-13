@@ -28,15 +28,15 @@ http://127.0.0.1:8765
 - Highlights the current TAZ as the main review target.
 - Allows zooming and panning to inspect surrounding TAZs.
 - Shows HERE Master LINKS and GSTDM LINKS within 1 mile of the current TAZ.
-- Shows GSTDM nodes within 1 mile of the current TAZ.
+- Shows GSTDM nodes within 1.5 miles of the current TAZ.
 - Shows final TAZ CC lines for the current TAZ.
 
 ## Edit Rules
 
 Only non-major nodes are valid snap targets:
 
-- Allowed: `MAJOR_LEVEL = 4` or `MAJOR_LEVEL = 5`
-- Blocked: `MAJOR_LEVEL <= 3`
+- Allowed: `MAJOR_LEVEL = 3`, `MAJOR_LEVEL = 4`, or `MAJOR_LEVEL = 5`
+- Blocked: `MAJOR_LEVEL <= 2`
 - Blocked: missing `MAJOR_LEVEL`
 
 Workflow:

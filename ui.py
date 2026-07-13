@@ -39,7 +39,7 @@ class ConnectorApp(ttk.Frame):
             "minimum_count": tk.StringVar(value="2"),
             "minimum_angle": tk.StringVar(value="60"),
             "maximum_snap": tk.StringVar(value=""),
-            "blocked_major_level": tk.StringVar(value="3"),
+            "blocked_major_level": tk.StringVar(value="2"),
             "boundary_tolerance": tk.StringVar(value="200"),
             "progress": tk.DoubleVar(value=0),
             "status": tk.StringVar(value="Ready"),

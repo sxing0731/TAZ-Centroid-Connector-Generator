@@ -73,10 +73,11 @@ the desired layer is not the first layer.
    node touching classes 1, 3, and 5 gets `MAJOR_LEVEL = 1`.
 6. For each sector direction, find the nearest eligible GSTDM Master NODE to
    the centroid-to-boundary radial line. A node is eligible only when
-   `MAJOR_LEVEL > blocked_major_level` (default 3, so only 4/5 snap nodes are
+   `MAJOR_LEVEL > blocked_major_level` (default 2, so 3/4/5 snap nodes are
    allowed), its centroid-to-node bearing falls inside the sector, and it is
    within `boundary_endpoint_tolerance` feet of the parent TAZ boundary
-   (default 200).
+   (default 200). If no sector/boundary-valid node exists, the engine falls
+   back to the nearest eligible non-major node.
 7. Rank snap-eligible sectors by HERE road-link density and enforce angular
    separation so the chosen directions are not clustered.
 8. Relax the angle threshold in 5-degree increments when needed to reach the

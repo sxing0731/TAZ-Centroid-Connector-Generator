@@ -135,7 +135,7 @@ def test_candidate_direction_matches_nearest_node_to_radial_line() -> None:
 
 
 def test_candidate_direction_skips_major_intersection_nodes() -> None:
-    config = ProcessingConfig(blocked_major_level=3)
+    config = ProcessingConfig(blocked_major_level=2)
     taz = gpd.GeoDataFrame(
         {"N": [1]},
         geometry=[Polygon([(0, -100), (1000, -100), (1000, 100), (0, 100)])],
@@ -156,18 +156,18 @@ def test_candidate_direction_skips_major_intersection_nodes() -> None:
         crs=centroids.crs,
     )
     nodes = gpd.GeoDataFrame(
-        {"NODE_ID": [10, 20], "MAJOR_LEVEL": [3, 4]},
+        {"NODE_ID": [10, 20], "MAJOR_LEVEL": [2, 3]},
         geometry=[Point(500, 0), Point(700, 50)],
         crs=centroids.crs,
     )
     annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
     assert annotated["MATCH_NODE_IDX"].iloc[0] == 1
-    assert annotated["MAJOR_LEVEL"].iloc[0] == 4
+    assert annotated["MAJOR_LEVEL"].iloc[0] == 3
     assert annotated["MAJOR_INT"].iloc[0] == "N"
     assert annotated["SNAP_ALLOWED"].iloc[0]
 
 
-def test_candidate_direction_requires_sector_and_boundary_tolerance() -> None:
+def test_candidate_direction_falls_back_to_nearest_non_major_node() -> None:
     config = ProcessingConfig(boundary_endpoint_tolerance=200.0)
     taz = gpd.GeoDataFrame(
         {"N": [1]},
@@ -194,9 +194,10 @@ def test_candidate_direction_requires_sector_and_boundary_tolerance() -> None:
         crs=taz.crs,
     )
     annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
-    assert annotated["MATCH_NODE_IDX"].iloc[0] == -1
-    assert not annotated["SNAP_ALLOWED"].iloc[0]
-    assert annotated["SNAP_FAIL_REASON"].iloc[0] == "NO_ALLOWED_NODE_IN_SECTOR_WITHIN_BOUNDARY_TOLERANCE"
+    assert annotated["MATCH_NODE_IDX"].iloc[0] == 0
+    assert annotated["SNAP_ALLOWED"].iloc[0]
+    assert annotated["SNAP_FALLBACK"].iloc[0]
+    assert annotated["SNAP_FAIL_REASON"].iloc[0] == "FALLBACK_NEAREST_ALLOWED_NODE"
 
 
 def test_node_major_level_uses_lowest_numeric_func_class() -> None:
@@ -230,7 +231,7 @@ def test_node_major_level_uses_lowest_numeric_func_class() -> None:
     assert levels[40] == 5
     assert major_ints[10] == "Y"
     assert major_ints[20] == "Y"
-    assert major_ints[30] == "Y"
+    assert major_ints[30] == "N"
     assert major_ints[40] == "N"
 
 

@@ -170,13 +170,16 @@ class QAQCDataStore:
         ):
             frame["TAZ_ID_TEXT"] = frame[field].map(_id_text)
         self.nodes["NODE_ID_TEXT"] = self.nodes["N"].map(_id_text)
-        self.nodes["SNAP_ELIG"] = (
-            pd.to_numeric(self.nodes.get("MAJOR_LEVEL"), errors="coerce") > 3
-        )
+        node_levels = pd.to_numeric(self.nodes.get("MAJOR_LEVEL"), errors="coerce")
+        self.nodes["MAJOR_INT"] = node_levels.map(lambda level: "Y" if pd.notna(level) and int(level) <= 2 else "N")
+        self.nodes["SNAP_ELIG"] = node_levels > 2
         self.lines["QC_STATUS"] = self.lines.get("QC_STATUS", "unreviewed")
         self.lines["QC_NOTE"] = self.lines.get("QC_NOTE", "")
         self.lines["OLD_CC_NODE"] = self.lines.get("OLD_CC_NODE", self.lines["CC_NODE"].map(_id_text))
         self.lines["CC_NODE"] = self.lines["CC_NODE"].map(_id_text)
+        if "MAJOR_LEVEL" in self.lines.columns:
+            line_levels = pd.to_numeric(self.lines.get("MAJOR_LEVEL"), errors="coerce")
+            self.lines["MAJOR_INT"] = line_levels.map(lambda level: "Y" if pd.notna(level) and int(level) <= 2 else "N")
         self._taz_lookup = self.taz.set_index("TAZ_ID_TEXT")
         self._centroid_lookup = self.centroids.set_index("TAZ_ID_TEXT").geometry
         self._selected_lookup = self.selected_points.set_index("CC_PT").geometry
@@ -324,7 +327,7 @@ class QAQCDataStore:
             raise ValueError(f"Node {node_id} not found")
         node_row = self._node_lookup.loc[node_id]
         if not bool(node_row["SNAP_ELIG"]):
-            raise ValueError(f"Node {node_id} is not eligible; only MAJOR_LEVEL 4/5 is allowed")
+            raise ValueError(f"Node {node_id} is not eligible; only MAJOR_LEVEL 3/4/5 is allowed")
         matches = self.lines.index[self.lines["CC_PT"] == cc_pt].tolist()
         if not matches:
             raise ValueError(f"Connector {cc_pt} not found")
@@ -365,7 +368,7 @@ class QAQCDataStore:
             raise ValueError(f"Node {node_id} not found")
         node_row = self._node_lookup.loc[node_id]
         if not bool(node_row["SNAP_ELIG"]):
-            raise ValueError(f"Node {node_id} is not eligible; only MAJOR_LEVEL 4/5 is allowed")
+            raise ValueError(f"Node {node_id} is not eligible; only MAJOR_LEVEL 3/4/5 is allowed")
 
         self._push_history()
         centroid = self._centroid_lookup.loc[taz_id]
