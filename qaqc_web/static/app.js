@@ -79,6 +79,15 @@ async function init() {
   if (appState.firstTaz) await goToTaz(appState.firstTaz);
 }
 
+async function refreshQueueState() {
+  const appState = await getJson("/api/state");
+  updateHistoryButtons(appState);
+  state.tazOrder = appState.tazOrder;
+  const index = state.tazOrder.findIndex((item) => String(item.id) === String(state.currentTazId));
+  if (index >= 0) state.currentIndex = index;
+  renderQueue();
+}
+
 function resizeCanvas() {
   const rect = state.canvas.parentElement.getBoundingClientRect();
   const scale = window.devicePixelRatio || 1;
@@ -880,6 +889,7 @@ async function addConnectorToNode(feature) {
   state.addMode = false;
   updateAddModeUi();
   toast(`Added CC to node ${nodeId}.`);
+  await refreshQueueState();
   await goToTaz(state.currentTazId, { keepView: true });
 }
 
@@ -911,6 +921,7 @@ async function saveEdit() {
   updateHistoryButtons(result);
   state.dirty = false;
   toast("Saved.");
+  await refreshQueueState();
   await goToTaz(state.currentTazId);
 }
 
@@ -922,6 +933,7 @@ async function markReviewed() {
   });
   updateHistoryButtons(result);
   toast("Marked reviewed.");
+  await refreshQueueState();
   await goToTaz(state.currentTazId, { keepView: true });
 }
 
@@ -943,6 +955,7 @@ async function deleteSelectedConnector() {
   state.pendingNode = null;
   state.dirty = false;
   toast(`Deleted ${ccPt}.`);
+  await refreshQueueState();
   await goToTaz(state.currentTazId, { keepView: true });
 }
 
@@ -955,6 +968,7 @@ async function undoEdit() {
     });
     updateHistoryButtons(result);
     toast("Edit undone.");
+    await refreshQueueState();
     await goToTaz(state.currentTazId, { keepView: true });
   } catch (error) {
     toast(error.message);
@@ -970,6 +984,7 @@ async function redoEdit() {
     });
     updateHistoryButtons(result);
     toast("Edit redone.");
+    await refreshQueueState();
     await goToTaz(state.currentTazId, { keepView: true });
   } catch (error) {
     toast(error.message);
