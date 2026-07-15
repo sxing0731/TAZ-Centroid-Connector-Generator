@@ -115,7 +115,7 @@ function bindControls() {
     hideContextMenu();
     state.addMode = true;
     updateAddModeUi();
-    toast("Tap an eligible non-major node to add CC.");
+    toast("Tap an eligible node to add CC.");
   });
   qs("ctxDeleteCcBtn").addEventListener("click", () => {
     hideContextMenu();
@@ -197,7 +197,7 @@ function bindCanvas() {
       return;
     }
     if (node && state.selectedConnector) {
-      setPendingNode(node);
+      saveConnectorToNode(node);
       event.preventDefault();
       return;
     }
@@ -248,10 +248,9 @@ function finishPointerGesture(event) {
   if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
     if (state.isDraggingEndpoint) {
       if (state.pendingNode) {
-        state.dirty = true;
-        toast(`Pending snap to node ${state.pendingNode.properties.NODE_ID_TEXT}`);
+        saveConnectorToNode(state.pendingNode);
       } else {
-        toast("No eligible non-major node near endpoint.");
+        toast("No eligible node near endpoint.");
       }
       state.isDraggingEndpoint = false;
       state.canvas.classList.remove("dragging");
@@ -855,19 +854,32 @@ function selectConnector(feature) {
   draw();
 }
 
-function setPendingNode(feature) {
-  state.pendingNode = feature;
-  state.dirty = true;
-  updateInspector(state.selectedConnector.properties);
-  draw();
-  toast(`Pending snap to node ${feature.properties.NODE_ID_TEXT}`);
+async function saveConnectorToNode(feature) {
+  if (!state.selectedConnector || !feature) return;
+  const ccPt = state.selectedConnector.properties.CC_PT;
+  const nodeId = feature.properties.NODE_ID_TEXT;
+  const result = await getJson("/api/save-edit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ccPt,
+      nodeId,
+      note: qs("qcNote").value,
+    }),
+  });
+  updateHistoryButtons(result);
+  state.pendingNode = null;
+  state.dirty = false;
+  toast(`Saved ${ccPt} to node ${nodeId}.`);
+  await refreshQueueState();
+  await goToTaz(state.currentTazId, { keepView: true });
 }
 
 function toggleAddMode() {
   state.addMode = !state.addMode;
   if (state.addMode) {
     clearSelection();
-    toast("Add CC mode: click an eligible non-major node.");
+    toast("Add CC mode: click an eligible node.");
   }
   updateAddModeUi();
 }
@@ -913,20 +925,7 @@ async function saveEdit() {
     toast("Select a connector and snap it to a new node first.");
     return;
   }
-  const result = await getJson("/api/save-edit", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ccPt: state.selectedConnector.properties.CC_PT,
-      nodeId: state.pendingNode.properties.NODE_ID_TEXT,
-      note: qs("qcNote").value,
-    }),
-  });
-  updateHistoryButtons(result);
-  state.dirty = false;
-  toast("Saved.");
-  await refreshQueueState();
-  await goToTaz(state.currentTazId);
+  await saveConnectorToNode(state.pendingNode);
 }
 
 async function markReviewed() {

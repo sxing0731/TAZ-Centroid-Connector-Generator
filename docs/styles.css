@@ -10,6 +10,10 @@
   --orange: #ff8500;
 }
 
+.hidden {
+  display: none !important;
+}
+
 * {
   box-sizing: border-box;
 }

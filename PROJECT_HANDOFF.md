@@ -28,8 +28,11 @@ centroid connectors for TAZ polygons without ArcGIS Pro or ArcPy.
    1, 3, and 5 produce `MAJOR_LEVEL = 1`.
 8. Candidate selection is based on HERE road-link density and angular separation.
 9. For each selected sector direction, find the nearest GSTDM node to the
-   centroid-to-boundary radial line, excluding nodes with
-   `MAJOR_LEVEL >= blocked_major_level` (default 3).
+   centroid-to-boundary radial line. `MAJOR_INT` is `Y` for
+   `MAJOR_LEVEL <= 2`, while snap eligibility also excludes
+   `MAJOR_LEVEL <= 2`; levels 3/4/5 can be used as snap nodes. When no
+   boundary-near node is available, expand outward from the sector endpoint
+   before falling back to the nearest eligible node.
 10. Final connectors are straight lines from the interior centroid to the snapped
    GSTDM node.
 11. If any part of a final connector lies outside its parent TAZ, flag it.
@@ -71,8 +74,9 @@ Current node ID mapping:
 - Minimum connectors: 2
 - Minimum angle: 60 degrees
 - Maximum snap distance: optional/unlimited when blank
-- Blocked node major level: 3
-- Endpoint boundary tolerance: 100 ft
+- Major-intersection level ceiling: 2
+- Snap blocked major level ceiling: 2
+- Endpoint boundary tolerance: 200 ft
 
 ## Output Fields
 
@@ -87,7 +91,7 @@ Current node ID mapping:
 - `LINE_NODE_DIST`: snapped-node distance to candidate radial line
 - `MAJOR_LEVEL`: highest GSTDM functional class touching snapped node
 - `MAJOR_INT`: `Y` when `MAJOR_LEVEL` is 1 or 2; otherwise `N`
-- `SNAP_ALLOWED`: snapped node is below the blocked major-level threshold
+- `SNAP_ALLOWED`: snapped node passes the snap blocked major-level threshold
 - `END_BND_DIST`: snapped-node distance from parent TAZ boundary
 - `END_ON_BND`: endpoint falls within the boundary tolerance
 - `CROSSES_TAZ`: final connector has geometry outside its parent TAZ

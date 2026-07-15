@@ -35,6 +35,7 @@ class ProcessingConfig:
     minimum_angle: float = 60.0
     maximum_snap_distance: float | None = None
     blocked_major_level: int = 2
+    snap_blocked_major_level: int = 2
     boundary_endpoint_tolerance: float = 200.0
     output_format: str = "GPKG"
 
@@ -53,7 +54,9 @@ class ProcessingConfig:
         if self.maximum_snap_distance is not None and self.maximum_snap_distance < 0:
             raise ValueError("Maximum snap distance cannot be negative.")
         if not 1 <= self.blocked_major_level <= 5:
-            raise ValueError("Blocked node major level ceiling must be between 1 and 5.")
+            raise ValueError("Major intersection level ceiling must be between 1 and 5.")
+        if not 1 <= self.snap_blocked_major_level <= 5:
+            raise ValueError("Snap blocked node major level ceiling must be between 1 and 5.")
         if self.boundary_endpoint_tolerance < 0:
             raise ValueError("Boundary endpoint tolerance cannot be negative.")
         if not self.fields.taz_id.strip():

@@ -40,6 +40,7 @@ class ConnectorApp(ttk.Frame):
             "minimum_angle": tk.StringVar(value="60"),
             "maximum_snap": tk.StringVar(value=""),
             "blocked_major_level": tk.StringVar(value="2"),
+            "snap_blocked_major_level": tk.StringVar(value="2"),
             "boundary_tolerance": tk.StringVar(value="200"),
             "progress": tk.DoubleVar(value=0),
             "status": tk.StringVar(value="Ready"),
@@ -96,7 +97,8 @@ class ConnectorApp(ttk.Frame):
             ("Minimum connectors (2-5)", "minimum_count"),
             ("Minimum angle", "minimum_angle"),
             ("Maximum snap distance (blank = unlimited)", "maximum_snap"),
-            ("Blocked node MAJOR_LEVEL (<=)", "blocked_major_level"),
+            ("Major intersection MAJOR_LEVEL (<=)", "blocked_major_level"),
+            ("Blocked snap MAJOR_LEVEL (<=)", "snap_blocked_major_level"),
             ("Snap node boundary tolerance", "boundary_tolerance"),
         ]
         for index, (label, key) in enumerate(parameter_rows):
@@ -166,6 +168,7 @@ class ConnectorApp(ttk.Frame):
             minimum_angle=float(self.variables["minimum_angle"].get()),
             maximum_snap_distance=float(maximum_text) if maximum_text else None,
             blocked_major_level=int(self.variables["blocked_major_level"].get()),
+            snap_blocked_major_level=int(self.variables["snap_blocked_major_level"].get()),
             boundary_endpoint_tolerance=float(self.variables["boundary_tolerance"].get()),
         )
 

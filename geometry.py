@@ -169,7 +169,7 @@ def _angle_in_sector(angle: float, start: float, end: float) -> bool:
 
 def _snap_level_allowed(level: object, config: ProcessingConfig) -> bool:
     """Only minor/intersection levels above the blocked threshold can be snapped."""
-    return pd.notna(level) and int(level) > config.blocked_major_level
+    return pd.notna(level) and int(level) > config.snap_blocked_major_level
 
 
 def _major_intersection_flag(level: object, config: ProcessingConfig) -> str:
@@ -221,9 +221,10 @@ def match_candidates_to_nodes(
 ) -> gpd.GeoDataFrame:
     """Match each candidate direction to the nearest allowed GSTDM node.
 
-    A node is eligible only when it is above the blocked major level, within
-    the candidate sector, and within the configured distance from the parent
-    TAZ boundary.
+    The primary match uses allowed nodes near the parent TAZ boundary and inside
+    the candidate sector. If that fails, the search expands outward from the
+    sector endpoint while preserving the sector direction before falling back to
+    the nearest allowed node.
     """
     centroid_lookup = centroids.set_index("N").geometry
     polygon_lookup = taz.set_index(config.fields.taz_id).geometry
@@ -235,6 +236,13 @@ def match_candidates_to_nodes(
         else [_major_intersection_flag(level, config) for level in major_levels]
     )
     node_tree = STRtree(node_geometries) if node_geometries else None
+    allowed_indices = [
+        index
+        for index, level in enumerate(major_levels)
+        if _snap_level_allowed(level, config)
+    ]
+    allowed_geometries = [node_geometries[index] for index in allowed_indices]
+    allowed_tree = STRtree(allowed_geometries) if allowed_geometries else None
     matched_node_indices: list[int] = []
     matched_candidate_distances: list[float] = []
     matched_line_distances: list[float] = []
@@ -258,10 +266,6 @@ def match_candidates_to_nodes(
         snap_allowed.append(False)
         fail_reasons.append(reason)
         snap_fallbacks.append(False)
-
-    allowed_indices = [
-        index for index in range(len(node_geometries)) if level_is_allowed(index)
-    ]
 
     def choose_best_node(
         row,
@@ -297,6 +301,48 @@ def match_candidates_to_nodes(
                 best = key
         return best
 
+    def choose_nearest_allowed_node(row, center: Point, boundary) -> tuple[float, float, float, int] | None:
+        if allowed_tree is None:
+            return None
+        local_index = int(allowed_tree.nearest(row.geometry))
+        node_index = allowed_indices[local_index]
+        node_geometry = node_geometries[node_index]
+        radial_line = LineString([center, row.geometry])
+        return (
+            float(radial_line.distance(node_geometry)),
+            float(row.geometry.distance(node_geometry)),
+            float(node_geometry.distance(boundary)),
+            node_index,
+        )
+
+    def choose_expanded_sector_node(row, center: Point, boundary) -> tuple[float, float, float, int] | None:
+        if allowed_tree is None:
+            return None
+        base_radius = max(config.boundary_endpoint_tolerance * 2.0, 1000.0)
+        max_radius = max(config.boundary_endpoint_tolerance * 16.0, 3.0 * 5280.0)
+        seen: set[int] = set()
+        radius = base_radius
+        while radius <= max_radius:
+            local_indices = [int(index) for index in allowed_tree.query(row.geometry.buffer(radius), predicate="intersects")]
+            candidate_indices: list[tuple[int, float]] = []
+            for local_index in local_indices:
+                if local_index in seen:
+                    continue
+                seen.add(local_index)
+                node_index = allowed_indices[local_index]
+                candidate_indices.append((node_index, float(node_geometries[node_index].distance(boundary))))
+            best = choose_best_node(
+                row,
+                center,
+                candidate_indices,
+                require_sector=True,
+                enforce_snap_distance=False,
+            )
+            if best is not None:
+                return best
+            radius *= 2.0
+        return None
+
     for taz_id, group in candidates.groupby("N", sort=False):
         if node_tree is None:
             for _ in group.itertuples():
@@ -323,11 +369,6 @@ def match_candidates_to_nodes(
                 append_no_match("NO_ALLOWED_NODE")
             continue
 
-        fallback_allowed = [
-            (index, float(node_geometries[index].distance(boundary)))
-            for index in allowed_indices
-        ]
-
         for row in group.itertuples():
             center = centroid_lookup.loc[row.N]
             best = choose_best_node(
@@ -338,15 +379,17 @@ def match_candidates_to_nodes(
                 enforce_snap_distance=True,
             )
             used_fallback = False
+            fallback_reason = ""
             if best is None:
-                best = choose_best_node(
-                    row,
-                    center,
-                    fallback_allowed,
-                    require_sector=False,
-                    enforce_snap_distance=False,
-                )
-                used_fallback = best is not None
+                best = choose_expanded_sector_node(row, center, boundary)
+                if best is not None:
+                    used_fallback = True
+                    fallback_reason = "EXPANDED_SECTOR_ALLOWED_NODE"
+            if best is None:
+                best = choose_nearest_allowed_node(row, center, boundary)
+                if best is not None:
+                    used_fallback = True
+                    fallback_reason = "FALLBACK_NEAREST_ALLOWED_NODE"
             if best is None:
                 append_no_match("NO_ALLOWED_NODE")
                 continue
@@ -358,7 +401,7 @@ def match_candidates_to_nodes(
             matched_major_levels.append(major_levels[node_index])
             matched_major_ints.append(major_ints[node_index])
             snap_allowed.append(True)
-            fail_reasons.append("FALLBACK_NEAREST_ALLOWED_NODE" if used_fallback else "")
+            fail_reasons.append(fallback_reason if used_fallback else "")
             snap_fallbacks.append(used_fallback)
 
     result = candidates.copy()
@@ -417,7 +460,7 @@ def snap_candidates_to_nodes(
         if nearest_index < 0:
             log(
                 f"Candidate {row.CC_PT}: no GSTDM node has MAJOR_LEVEL > "
-                f"{config.blocked_major_level}.",
+                f"{config.snap_blocked_major_level}.",
                 30,
             )
             continue

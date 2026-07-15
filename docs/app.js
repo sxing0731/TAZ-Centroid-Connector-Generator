@@ -83,7 +83,7 @@ function bindControls() {
     hideContextMenu();
     state.addMode = true;
     updateAddModeUi();
-    toast("Tap an eligible non-major node to add CC.");
+    toast("Tap an eligible node to add CC.");
   });
   qs("ctxDeleteCcBtn").addEventListener("click", () => {
     hideContextMenu();
@@ -160,7 +160,7 @@ function bindCanvas() {
       return;
     }
     if (node && state.selected) {
-      setPendingNode(node);
+      applyEditToNode(node);
       event.preventDefault();
       return;
     }
@@ -201,10 +201,9 @@ function finishPointer(event) {
   if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
   if (state.isDraggingEndpoint) {
     if (state.pendingNode) {
-      state.dirty = true;
-      toast(`Pending snap to node ${state.pendingNode.id}`);
+      applyEditToNode(state.pendingNode);
     } else {
-      toast("No eligible non-major node near endpoint.");
+      toast("No eligible node near endpoint.");
     }
     updateInspector();
   }
@@ -738,15 +737,35 @@ function selectConnector(c) {
   draw();
 }
 
-function setPendingNode(n) {
-  if (!n.eligible) {
+function applyEditToNode(node) {
+  if (!state.selected) {
+    toast("Select a connector first.");
+    return;
+  }
+  if (!node?.eligible) {
     toast("Major node is locked. Choose MAJOR_LEVEL 3/4/5.");
     return;
   }
-  state.pendingNode = n;
-  state.dirty = true;
+  const tazId = state.payload.tazId;
+  const geom = { type: "LineString", coordinates: [state.payload.centroid, [node.x, node.y]] };
+  const edit = {
+    nodeId: node.id,
+    majorLevel: node.majorLevel,
+    status: "edited",
+    note: qs("qcNote").value,
+    geom,
+  };
+  pushEditHistory();
+  state.edits[tazId] ||= {};
+  state.edits[tazId].connectors ||= {};
+  state.edits[tazId].connectors[state.selected.ccPt] = edit;
+  Object.assign(state.selected, edit);
+  state.pendingNode = null;
+  state.dirty = false;
+  saveLocal();
   updateInspector();
   draw();
+  toast(`Saved ${state.selected.ccPt} to node ${node.id}.`);
 }
 
 function clearSelection() {
@@ -820,35 +839,16 @@ function saveEdit() {
     return;
   }
   if (!state.pendingNode) {
-    toast("Choose a new non-major node first.");
+    toast("Choose a new eligible node first.");
     return;
   }
-  const tazId = state.payload.tazId;
-  const geom = { type: "LineString", coordinates: [state.payload.centroid, [state.pendingNode.x, state.pendingNode.y]] };
-  const edit = {
-    nodeId: state.pendingNode.id,
-    majorLevel: state.pendingNode.majorLevel,
-    status: "edited",
-    note: qs("qcNote").value,
-    geom,
-  };
-  pushEditHistory();
-  state.edits[tazId] ||= {};
-  state.edits[tazId].connectors ||= {};
-  state.edits[tazId].connectors[state.selected.ccPt] = edit;
-  Object.assign(state.selected, edit);
-  state.pendingNode = null;
-  state.dirty = false;
-  saveLocal();
-  updateInspector();
-  draw();
-  toast("Saved in this browser.");
+  applyEditToNode(state.pendingNode);
 }
 
 function toggleAddMode() {
   state.addMode = !state.addMode;
   updateAddModeUi();
-  toast(state.addMode ? "Tap an eligible non-major node to add CC." : "Add CC off.");
+  toast(state.addMode ? "Tap an eligible node to add CC." : "Add CC off.");
 }
 
 function updateAddModeUi() {

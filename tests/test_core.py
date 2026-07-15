@@ -134,8 +134,8 @@ def test_candidate_direction_matches_nearest_node_to_radial_line() -> None:
     assert annotated["LINE_NODE_DIST"].iloc[0] == 25.0
 
 
-def test_candidate_direction_skips_major_intersection_nodes() -> None:
-    config = ProcessingConfig(blocked_major_level=2)
+def test_candidate_direction_skips_level_one_and_two_snap_nodes() -> None:
+    config = ProcessingConfig(blocked_major_level=2, snap_blocked_major_level=2)
     taz = gpd.GeoDataFrame(
         {"N": [1]},
         geometry=[Polygon([(0, -100), (1000, -100), (1000, 100), (0, 100)])],
@@ -156,18 +156,49 @@ def test_candidate_direction_skips_major_intersection_nodes() -> None:
         crs=centroids.crs,
     )
     nodes = gpd.GeoDataFrame(
-        {"NODE_ID": [10, 20], "MAJOR_LEVEL": [2, 3]},
+        {"NODE_ID": [10, 20], "MAJOR_LEVEL": [1, 2]},
         geometry=[Point(500, 0), Point(700, 50)],
         crs=centroids.crs,
     )
     annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
-    assert annotated["MATCH_NODE_IDX"].iloc[0] == 1
+    assert annotated["MATCH_NODE_IDX"].iloc[0] == -1
+    assert not annotated["SNAP_ALLOWED"].iloc[0]
+
+
+def test_candidate_direction_allows_level_three_four_and_five_snap_nodes() -> None:
+    config = ProcessingConfig(blocked_major_level=2, snap_blocked_major_level=2)
+    taz = gpd.GeoDataFrame(
+        {"N": [1]},
+        geometry=[Polygon([(0, -100), (1000, -100), (1000, 100), (0, 100)])],
+        crs="EPSG:2240",
+    )
+    centroids = gpd.GeoDataFrame({"N": [1]}, geometry=[Point(0, 0)], crs="EPSG:2240")
+    candidates = gpd.GeoDataFrame(
+        {
+            "N": [1],
+            "CC_PT": ["1_1"],
+            "ANGLE_DEG": [90.0],
+            "ANGLE_START": [45.0],
+            "ANGLE_END": [135.0],
+            "DENSITY": [1.0],
+            "DENS_RANK": [1],
+        },
+        geometry=[Point(1000, 0)],
+        crs=centroids.crs,
+    )
+    nodes = gpd.GeoDataFrame(
+        {"NODE_ID": [10, 20, 30], "MAJOR_LEVEL": [3, 4, 5]},
+        geometry=[Point(500, 0), Point(700, 50), Point(900, 60)],
+        crs=centroids.crs,
+    )
+    annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
+    assert annotated["MATCH_NODE_IDX"].iloc[0] == 0
     assert annotated["MAJOR_LEVEL"].iloc[0] == 3
     assert annotated["MAJOR_INT"].iloc[0] == "N"
     assert annotated["SNAP_ALLOWED"].iloc[0]
 
 
-def test_candidate_direction_falls_back_to_nearest_non_major_node() -> None:
+def test_candidate_direction_expands_outward_before_nearest_fallback() -> None:
     config = ProcessingConfig(boundary_endpoint_tolerance=200.0)
     taz = gpd.GeoDataFrame(
         {"N": [1]},
@@ -194,10 +225,10 @@ def test_candidate_direction_falls_back_to_nearest_non_major_node() -> None:
         crs=taz.crs,
     )
     annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
-    assert annotated["MATCH_NODE_IDX"].iloc[0] == 0
+    assert annotated["MATCH_NODE_IDX"].iloc[0] == 1
     assert annotated["SNAP_ALLOWED"].iloc[0]
     assert annotated["SNAP_FALLBACK"].iloc[0]
-    assert annotated["SNAP_FAIL_REASON"].iloc[0] == "FALLBACK_NEAREST_ALLOWED_NODE"
+    assert annotated["SNAP_FAIL_REASON"].iloc[0] == "EXPANDED_SECTOR_ALLOWED_NODE"
 
 
 def test_node_major_level_uses_lowest_numeric_func_class() -> None:
