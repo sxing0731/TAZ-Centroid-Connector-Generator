@@ -25,6 +25,7 @@
       <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
       <button id="jumpBtn">Go</button>
       <button id="cubeBtn">Cube DBF</button>
+      <button id="instructionsBtn">Instructions for Users</button>
       <div id="dirtyBadge" class="badge hidden">Unsaved edit</div>
     </header>
 
@@ -92,6 +93,54 @@
         </div>
       </aside>
     </main>
+
+    <section id="instructionsPanel" class="instructions-panel hidden" aria-modal="true" role="dialog" aria-labelledby="instructionsTitle">
+      <div class="instructions-card">
+        <div class="instructions-head">
+          <h2 id="instructionsTitle">Instructions for Users</h2>
+          <button id="closeInstructionsBtn" title="Close instructions">x</button>
+        </div>
+        <div class="instructions-body">
+          <p>
+            This tool is used to review and edit TAZ centroid connectors. A TAZ is a Traffic Analysis Zone.
+            Each TAZ has a centroid, and the CC, or centroid connector, links that centroid to the roadway
+            network through a valid network node. CCs should generally point toward areas with higher activity
+            density inside or near the TAZ. In this run, HERE roadway density data was used as the main reference
+            for identifying likely activity areas.
+          </p>
+          <p>
+            The number of CCs is somewhat subjective and depends on the size and shape of the TAZ. Smaller TAZs
+            usually have 1 to 2 CCs, while larger TAZs may have 3 to 5. In principle, CCs should avoid connecting
+            directly to freeways, major arterials, or intersections. These rules have already been built into the
+            program, so the main task is to human-review the generated results and make corrections where needed.
+            The basemap can be turned on to help review whether the connector location makes sense.
+          </p>
+          <h3>Basic workflow</h3>
+          <ol>
+            <li>Open the web tool.</li>
+            <li>Select a TAZ from the queue, or use the TAZ search box to jump to a specific TAZ.</li>
+            <li>Review the existing centroid connectors on the map.</li>
+            <li>Click a connector to inspect its current connected node.</li>
+            <li>To modify a connector, select the connector and click a valid target node on the map. The edit is saved immediately.</li>
+            <li>To add a new connector, click Add CC, then choose the target node. The new connector is generated and saved directly.</li>
+            <li>Use Undo Edit or Redo Edit if needed.</li>
+            <li>Mark the TAZ as reviewed when the connectors look correct.</li>
+            <li>Continue through the remaining TAZs.</li>
+            <li>When review is complete, export the final Cube output using the Cube DBF button.</li>
+          </ol>
+          <p>
+            Please focus on whether each centroid connector is connected to a reasonable valid node. Major nodes
+            with MAJOR_LEVEL &lt;= 2 should not be used as snap nodes; only MAJOR_LEVEL 3, 4, or 5 are eligible.
+          </p>
+          <p>
+            For the GitHub static web version, your edits are saved locally in your browser, so closing the webpage,
+            closing the browser, or restarting your computer should not affect your saved work. As long as you reopen
+            the same link in the same browser, your previous edits, QC notes, and reviewed status should still be
+            available.
+          </p>
+        </div>
+      </div>
+    </section>
 
     <footer class="statusbar">
       <span id="statusText">Initializing...</span>

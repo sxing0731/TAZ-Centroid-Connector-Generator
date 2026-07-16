@@ -78,6 +78,8 @@ function bindControls() {
   qs("addCcBtn").addEventListener("click", toggleAddMode);
   qs("reviewedBtn").addEventListener("click", markReviewed);
   qs("cubeBtn").addEventListener("click", exportCubeDbf);
+  qs("instructionsBtn").addEventListener("click", showInstructions);
+  qs("closeInstructionsBtn").addEventListener("click", hideInstructions);
   qs("clearBtn").addEventListener("click", clearSelection);
   qs("ctxAddCcBtn").addEventListener("click", () => {
     hideContextMenu();
@@ -96,7 +98,10 @@ function bindControls() {
     if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideContextMenu();
+    if (event.key === "Escape") {
+      hideContextMenu();
+      hideInstructions();
+    }
   });
   qs("queueFilter").addEventListener("change", renderQueue);
   qs("basemapSelect").addEventListener("change", () => {
@@ -112,6 +117,14 @@ function bindControls() {
       draw();
     });
   });
+}
+
+function showInstructions() {
+  qs("instructionsPanel").classList.remove("hidden");
+}
+
+function hideInstructions() {
+  qs("instructionsPanel").classList.add("hidden");
 }
 
 function bindCanvas() {

@@ -453,6 +453,66 @@ textarea {
   font-size: 13px;
 }
 
+.instructions-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(29, 36, 51, 0.46);
+}
+
+.instructions-card {
+  width: min(860px, 100%);
+  max-height: min(86vh, 760px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(25, 32, 46, 0.28);
+}
+
+.instructions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.instructions-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.instructions-body {
+  overflow: auto;
+  padding: 18px 22px 24px;
+  line-height: 1.5;
+}
+
+.instructions-body h3 {
+  margin: 18px 0 8px;
+  font-size: 15px;
+}
+
+.instructions-body p {
+  margin: 0 0 13px;
+}
+
+.instructions-body ol {
+  margin: 0 0 14px 22px;
+  padding: 0;
+}
+
+.instructions-body li {
+  margin: 6px 0;
+}
+
 .statusbar {
   min-height: 34px;
   display: flex;
