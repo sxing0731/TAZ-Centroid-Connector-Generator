@@ -17,6 +17,8 @@ const state = {
   isDraggingEndpoint: false,
   dragStart: null,
   activePointerId: null,
+  touchPointers: new Map(),
+  pinchGesture: null,
   lastTapAt: 0,
   basemap: "road",
   tileCache: new Map(),
@@ -191,6 +193,15 @@ function bindCanvas() {
   state.canvas.addEventListener("pointerdown", (event) => {
     hideContextMenu();
     const pt = eventPoint(event);
+    if (event.pointerType === "touch") {
+      state.touchPointers.set(event.pointerId, pt);
+      state.canvas.setPointerCapture(event.pointerId);
+      if (state.touchPointers.size >= 2) {
+        beginPinchGesture();
+        event.preventDefault();
+        return;
+      }
+    }
     state.activePointerId = event.pointerId;
     state.canvas.setPointerCapture(event.pointerId);
     if (state.selectedConnector && endpointHit(pt)) {
@@ -232,6 +243,14 @@ function bindCanvas() {
     event.preventDefault();
   });
   state.canvas.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "touch" && state.touchPointers.has(event.pointerId)) {
+      state.touchPointers.set(event.pointerId, eventPoint(event));
+      if (state.pinchGesture && state.touchPointers.size >= 2) {
+        updatePinchGesture();
+        event.preventDefault();
+        return;
+      }
+    }
     if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
     const pt = eventPoint(event);
     if (state.isDraggingEndpoint) {
@@ -261,7 +280,48 @@ function eventPoint(event) {
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
+function touchPairMetrics() {
+  const points = Array.from(state.touchPointers.values()).slice(0, 2);
+  if (points.length < 2) return null;
+  return {
+    center: { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 },
+    distance: Math.max(1, Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y)),
+  };
+}
+
+function beginPinchGesture() {
+  state.pinchGesture = touchPairMetrics();
+  state.isDraggingEndpoint = false;
+  state.isPanning = false;
+  state.dragStart = null;
+  state.lastTapAt = 0;
+  state.canvas.classList.remove("dragging", "panning");
+}
+
+function updatePinchGesture() {
+  const previous = state.pinchGesture;
+  const current = touchPairMetrics();
+  if (!previous || !current) return;
+  panBy(current.center.x - previous.center.x, current.center.y - previous.center.y);
+  const factor = Math.max(0.5, Math.min(2, previous.distance / current.distance));
+  zoomAt(current.center.x, current.center.y, factor);
+  state.pinchGesture = current;
+}
+
 function finishPointerGesture(event) {
+  if (event.pointerType === "touch") {
+    state.touchPointers.delete(event.pointerId);
+    if (state.pinchGesture) {
+      state.pinchGesture = state.touchPointers.size >= 2 ? touchPairMetrics() : null;
+      state.activePointerId = state.touchPointers.size === 1 ? state.touchPointers.keys().next().value : null;
+      state.isDraggingEndpoint = false;
+      state.isPanning = false;
+      state.dragStart = null;
+      state.canvas.classList.remove("dragging", "panning");
+      if (event.pointerId !== undefined && state.canvas.hasPointerCapture(event.pointerId)) state.canvas.releasePointerCapture(event.pointerId);
+      return;
+    }
+  }
   if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
     if (state.isDraggingEndpoint) {
       if (state.pendingNode) {

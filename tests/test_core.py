@@ -277,8 +277,10 @@ def test_candidate_direction_allows_level_three_four_and_five_snap_nodes() -> No
         crs=centroids.crs,
     )
     annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
-    assert annotated["MATCH_NODE_IDX"].iloc[0] == 0
-    assert annotated["MAJOR_LEVEL"].iloc[0] == 3
+    # All three levels are eligible; within the same edge-distance band, the
+    # node closest to the candidate direction wins.
+    assert annotated["MATCH_NODE_IDX"].iloc[0] == 1
+    assert annotated["MAJOR_LEVEL"].iloc[0] == 4
     assert annotated["MAJOR_INT"].iloc[0] == "N"
     assert annotated["SNAP_ALLOWED"].iloc[0]
 

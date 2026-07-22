@@ -295,11 +295,11 @@ def match_candidates_to_nodes(
         candidate_indices: list[tuple[int, float]],
         require_sector: bool,
         enforce_snap_distance: bool,
-    ) -> tuple[float, float, float, int] | None:
+    ) -> tuple[int, int, float, float, float, float, int] | None:
         radial_line = LineString([center, row.geometry])
         start = getattr(row, "ANGLE_START", None)
         end = getattr(row, "ANGLE_END", None)
-        best: tuple[float, float, float, int] | None = None
+        best: tuple[int, int, float, float, float, float, int] | None = None
         for index, boundary_distance in candidate_indices:
             node_geometry = node_geometries[index]
             connector = LineString([center, node_geometry])
@@ -326,7 +326,30 @@ def match_candidates_to_nodes(
                 and candidate_distance > config.maximum_snap_distance
             ):
                 continue
-            key = (line_distance, candidate_distance, boundary_distance, index)
+            # Prefer progressively tighter edge/route bands, then optimize the
+            # angular candidate fit within the same band. A pure nearest-edge
+            # sort can collapse many sectors onto the same node and reduce the
+            # final connector count unnecessarily.
+            def distance_band(value: float) -> int:
+                if value <= 25.0 + 1e-6:
+                    return 0
+                if value <= 50.0 + 1e-6:
+                    return 1
+                if value <= 100.0 + 1e-6:
+                    return 2
+                return 3
+
+            boundary_band = distance_band(boundary_distance)
+            outside_band = distance_band(outside_length)
+            key = (
+                max(boundary_band, outside_band),
+                boundary_band + outside_band,
+                line_distance,
+                boundary_distance,
+                outside_length,
+                candidate_distance,
+                index,
+            )
             if best is None or key < best:
                 best = key
         return best
@@ -416,7 +439,7 @@ def match_candidates_to_nodes(
             if best is None:
                 append_no_match("NO_NON_MAJOR_NODE_WITHIN_LIMITS")
                 continue
-            line_distance, candidate_distance, boundary_distance, node_index = best
+            _, _, line_distance, boundary_distance, _, candidate_distance, node_index = best
             matched_node_indices.append(node_index)
             matched_candidate_distances.append(candidate_distance)
             matched_line_distances.append(line_distance)
