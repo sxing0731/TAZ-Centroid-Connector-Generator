@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import csv
 import json
+import math
 import mimetypes
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,7 +13,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import LineString, mapping
+from shapely.geometry import LineString, Point, mapping
 
 from defaults import HERE_LINKS_PATH, ROOT, TAZ_PATH
 
@@ -22,6 +23,15 @@ CONTEXT_FEET = FEET_PER_MILE * CONTEXT_MILES
 MIN_CONNECTORS = 1
 MAX_CONNECTORS = 3
 MAX_OUTSIDE_FEET = 200.0
+MIN_CC_ANGLE = 70.0
+
+
+def _taz_id_sort_key(value: object) -> tuple[int, float | str, str]:
+    text = str(value)
+    try:
+        return (0, float(text), text)
+    except ValueError:
+        return (1, text, text)
 
 
 def _id_text(value: object) -> str:
@@ -34,6 +44,18 @@ def _id_text(value: object) -> str:
     except (TypeError, ValueError):
         pass
     return str(value)
+
+
+def _bearing_degrees(start, end) -> float:
+    return float(
+        (math.degrees(math.atan2(end.x - start.x, end.y - start.y)) + 360.0)
+        % 360.0
+    )
+
+
+def _angular_difference(first: float, second: float) -> float:
+    difference = abs(first - second) % 360.0
+    return min(difference, 360.0 - difference)
 
 
 def _json_response(handler: BaseHTTPRequestHandler, payload: object, status: int = 200) -> None:
@@ -219,7 +241,7 @@ class QAQCDataStore:
                     "reviewed": reviewed,
                 }
             )
-        order.sort(key=lambda item: (item["flag"] != "Y", item["issue"] != "BELOW_TARGET_CONNECTORS", item["id"]))
+        order.sort(key=lambda item: _taz_id_sort_key(item["id"]))
         return {
             "runFolder": str(self.run_folder),
             "count": len(order),
@@ -287,6 +309,7 @@ class QAQCDataStore:
                     "NEAR_DIST",
                     "LINE_NODE_DIST",
                     "END_BND_DIST",
+                    "INTERIOR_FALLBACK",
                     "OUTSIDE_LEN",
                     "QC_STATUS",
                     "QC_NOTE",
@@ -306,6 +329,7 @@ class QAQCDataStore:
                     "NEAR_DIST",
                     "LINE_NODE_DIST",
                     "END_BND_DIST",
+                    "INTERIOR_FALLBACK",
                     "OUTSIDE_LEN",
                     "QC_STATUS",
                     "QC_NOTE",
@@ -320,7 +344,12 @@ class QAQCDataStore:
         subset["geometry"] = subset.geometry.intersection(context)
         return subset[(~subset.geometry.is_empty) & subset.geometry.notna()]
 
-    def _validate_target(self, taz_id: str, node_id: str) -> tuple[object, LineString, float]:
+    def _validate_target(
+        self,
+        taz_id: str,
+        node_id: str,
+        exclude_cc_pt: str | None = None,
+    ) -> tuple[object, LineString, float]:
         node_row = self._node_lookup.loc[node_id]
         if not bool(node_row["SNAP_ELIG"]):
             raise ValueError(
@@ -346,6 +375,24 @@ class QAQCDataStore:
         node = node_row.geometry
         polygon = self._taz_lookup.loc[taz_id].geometry
         connector = LineString([centroid, node])
+        proposed_angle = _bearing_degrees(centroid, node)
+        peers = self.lines[self.lines["TAZ_ID_TEXT"] == taz_id]
+        if exclude_cc_pt:
+            peers = peers[peers["CC_PT"] != exclude_cc_pt]
+        for peer in peers.itertuples():
+            coordinates = list(peer.geometry.coords)
+            if not coordinates:
+                continue
+            peer_endpoint = Point(coordinates[-1])
+            separation = _angular_difference(
+                proposed_angle,
+                _bearing_degrees(centroid, peer_endpoint),
+            )
+            if separation < MIN_CC_ANGLE - 1e-9:
+                raise ValueError(
+                    f"Connector would be only {separation:.1f} degrees from "
+                    f"{peer.CC_PT}; minimum is {MIN_CC_ANGLE:g} degrees"
+                )
         outside_length = float(connector.difference(polygon).length)
         if outside_length > MAX_OUTSIDE_FEET + 1e-6:
             raise ValueError(
@@ -372,7 +419,9 @@ class QAQCDataStore:
             raise ValueError(f"Connector {cc_pt} not found")
         index = matches[0]
         taz_id = self.lines.at[index, "TAZ_ID_TEXT"]
-        node_row, connector, outside_length = self._validate_target(taz_id, node_id)
+        node_row, connector, outside_length = self._validate_target(
+            taz_id, node_id, exclude_cc_pt=cc_pt
+        )
         self._push_history()
         centroid = self._centroid_lookup.loc[taz_id]
         node = node_row.geometry
@@ -381,10 +430,12 @@ class QAQCDataStore:
         radial_line = LineString([centroid, boundary_point])
         self.lines.at[index, "geometry"] = connector
         self.lines.at[index, "CC_NODE"] = node_id
+        self.lines.at[index, "ANGLE_DEG"] = _bearing_degrees(centroid, node)
         self.lines.at[index, "NEAR_DIST"] = float(boundary_point.distance(node))
         self.lines.at[index, "LINE_NODE_DIST"] = float(radial_line.distance(node))
         self.lines.at[index, "END_BND_DIST"] = float(node.distance(polygon.boundary))
         self.lines.at[index, "END_ON_BND"] = bool(self.lines.at[index, "END_BND_DIST"] <= 200.0)
+        self.lines.at[index, "INTERIOR_FALLBACK"] = bool(self.lines.at[index, "END_BND_DIST"] > 200.0)
         self.lines.at[index, "CROSSES_TAZ"] = bool(connector.difference(polygon).length > 1e-6)
         self.lines.at[index, "OUTSIDE_LEN"] = outside_length
         self.lines.at[index, "CROSSES_GSTDM"] = False
@@ -426,7 +477,7 @@ class QAQCDataStore:
                 "OLD_CC_NODE": "",
                 "DENSITY": None,
                 "DENS_RANK": None,
-                "ANGLE_DEG": None,
+                "ANGLE_DEG": _bearing_degrees(centroid, node),
                 "NEAR_DIST": 0.0,
                 "SNAP_OK": True,
                 "LINE_NODE_DIST": 0.0,
@@ -437,6 +488,7 @@ class QAQCDataStore:
                 "SNAP_FAIL_REASON": "",
                 "END_BND_DIST": boundary_distance,
                 "END_ON_BND": boundary_distance <= 200.0,
+                "INTERIOR_FALLBACK": boundary_distance > 200.0,
                 "CROSSES_TAZ": outside_length > 1e-6,
                 "OUTSIDE_LEN": outside_length,
                 "CROSSES_GSTDM": False,

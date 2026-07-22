@@ -33,6 +33,8 @@ centroid connectors for TAZ polygons without ArcGIS Pro or ArcPy.
    `MAJOR_LEVEL <= 2`; only non-major levels 3/4/5 can be used as snap nodes.
    A connector may have at most 200 ft outside its TAZ and cannot cross a GSTDM
    LINK before reaching the target-node endpoint. These limits are never relaxed.
+   Boundary-near nodes within 200 ft of the TAZ edge are always searched first;
+   an internal node is used only when no boundary-near node passes every rule.
 10. A GSTDM target node may be used by only one TAZ. When TAZs compete for the
     same node, the TAZ with more valid alternatives is redirected to its next
     nearby fully valid node.
@@ -76,7 +78,7 @@ Current node ID mapping:
 - Sector count: 10
 - Maximum connectors: 3
 - Minimum connectors: 1
-- Minimum angle: 60 degrees
+- Minimum angle: 70 degrees (hard rule; never relaxed)
 - Maximum snap distance: optional/unlimited when blank
 - Major-intersection level ceiling: 2
 - Snap blocked major level ceiling: 2
@@ -98,6 +100,7 @@ Current node ID mapping:
 - `SNAP_ALLOWED`: snapped node passes the snap blocked major-level threshold
 - `END_BND_DIST`: snapped-node distance from parent TAZ boundary
 - `END_ON_BND`: endpoint falls within the boundary tolerance
+- `INTERIOR_FALLBACK`: no valid boundary-near node existed, so the endpoint is internal
 - `CROSSES_TAZ`: final connector has geometry outside its parent TAZ
 - `OUTSIDE_LEN`: length of connector outside its parent TAZ
 - `CROSSES_GSTDM`: connector intersects a GSTDM link before its target endpoint
@@ -107,8 +110,9 @@ Current node ID mapping:
 1. Higher HERE road-link density.
 2. Stable candidate ID ordering.
 3. Angular-separation rules.
-4. Relax the angle threshold in 5-degree increments if needed to satisfy the
-   minimum connector count.
+4. Enforce at least 70 degrees between final snapped connector bearings. Delete
+   lower-priority candidates when three connectors cannot fit without violating
+   the threshold.
 
 ## Verification
 

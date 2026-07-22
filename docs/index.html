@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAZ Connector QAQC</title>
-    <link rel="stylesheet" href="styles.css?v=20260721-black-network" />
+    <link rel="stylesheet" href="styles.css?v=20260722-osm-performance" />
   </head>
   <body>
     <header class="topbar">
@@ -102,16 +102,17 @@
         <label class="basemap-control">Basemap
           <select id="basemapSelect">
             <option value="none">None</option>
-            <option value="road" selected>Road</option>
+            <option value="road" selected>OpenStreetMap</option>
             <option value="satellite">Satellite</option>
           </select>
         </label>
+        <div id="basemapAttribution" class="basemap-attribution"></div>
         <div class="map-help">Wheel/double tap: zoom | Drag map: pan | Click TAZ/CC: select | Drag endpoint: snap</div>
         <div class="legend">
           <div class="legend-title">Legend <small>drag · top = front</small></div>
           <div id="legendLayers">
             <label class="legend-layer" data-layer-row="tazLabels"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="tazLabels" checked /><span class="swatch text-label">123</span>TAZ Labels</label>
-            <label class="legend-layer" data-layer-row="centroids"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="centroids" checked /><span class="swatch star">*</span>Centroid</label>
+            <label class="legend-layer" data-layer-row="centroids"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="centroids" checked /><span class="swatch star">▲</span>Centroid</label>
             <label class="legend-layer" data-layer-row="connectors"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Centroid Connector</label>
             <label class="legend-layer" data-layer-row="majorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="majorNodes" checked /><span class="swatch dot major"></span>Major Node</label>
             <label class="legend-layer" data-layer-row="nonMajorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="nonMajorNodes" checked /><span class="swatch dot nonmajor"></span>Non-Major Node</label>
@@ -145,6 +146,8 @@
           <dt>New Node</dt><dd id="newNode">-</dd>
           <dt>MAJOR_LEVEL</dt><dd id="majorLevel">-</dd>
           <dt>OUTSIDE_LEN</dt><dd id="outsideLen">-</dd>
+          <dt>END_BND_DIST</dt><dd id="endBoundaryDist">-</dd>
+          <dt>ENDPOINT TYPE</dt><dd id="endpointType">-</dd>
           <dt>LINE_NODE_DIST</dt><dd id="lineNodeDist">-</dd>
         </dl>
         <label class="note-label">QC Note</label>
@@ -174,10 +177,13 @@
             The number of CCs is somewhat subjective and depends on the size and shape of the TAZ. Smaller TAZs
             usually have 1 to 2 CCs, while larger TAZs may have 3. Every TAZ must keep 1 to 3 CCs. CCs cannot extend
             more than 200 ft outside the TAZ or cross a GSTDM link before reaching the target node. A GSTDM target node
-            can be used by only one TAZ; if another TAZ already uses it, choose a nearby different node. CCs should avoid connecting
-            directly to freeways, major arterials, or intersections. These rules have already been built into the
+            can be used by only one TAZ; if another TAZ already uses it, choose a nearby different node. CCs within one TAZ
+            must be at least 70 degrees apart; this angle is never reduced, so delete a lower-priority CC if needed. CCs should avoid connecting
+            to internal TAZ nodes: use a node within 200 ft of the TAZ boundary whenever one satisfies all hard rules.
+            A farther internal node is labeled INTERIOR FALLBACK. CCs should also avoid connecting directly to freeways,
+            major arterials, or intersections. These rules have already been built into the
             program, so the main task is to human-review the generated results and make corrections where needed.
-            The basemap can be turned on to help review whether the connector location makes sense.
+            The OpenStreetMap basemap loads only the tiles needed for the visible map view and can be turned on to help review whether the connector location makes sense.
           </p>
           <h3>Basic workflow</h3>
           <ol>
@@ -219,7 +225,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
     <script src="cc-file-loader.js?v=20260721-all-data"></script>
-    <script src="app.js?v=20260722-node-exclusivity"></script>
+    <script src="app.js?v=20260722-taz-queue-sync"></script>
     <script>
       (() => {
         const showInstructions = () => document.getElementById("instructionsPanel")?.classList.remove("hidden");

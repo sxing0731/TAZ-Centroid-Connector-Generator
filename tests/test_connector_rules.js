@@ -13,16 +13,17 @@ const taz = {
   coordinates: [[[0, 0], [1000, 0], [1000, 1000], [0, 1000], [0, 0]]],
 };
 const state = {
-  payload: { centroid: [500, 500], taz },
+  payload: { centroid: [500, 500], taz, connectors: [] },
   linkGrid: [],
 };
 const factory = new Function(
   "state",
   "querySpatialGrid",
   "boundsIntersect",
+  "MIN_CC_ANGLE",
   `${appSource.slice(start, end)}; return { segmentOutsideLength, connectorCrossesGstdm, connectorTargetValidation };`
 );
-const rules = factory(state, (grid) => grid, () => true);
+const rules = factory(state, (grid) => grid, () => true, 70);
 
 assert.ok(Math.abs(rules.segmentOutsideLength([500, 500], [1150, 500], taz) - 150) < 1e-6);
 assert.ok(Math.abs(rules.segmentOutsideLength([500, 500], [1250, 500], taz) - 250) < 1e-6);
@@ -42,6 +43,19 @@ assert.match(
   /already used by TAZ 2/
 );
 state.globalConnectors = [];
+state.payload.connectors = [{
+  ccPt: "existing",
+  geom: { type: "LineString", coordinates: [[500, 500], [900, 500]] },
+}];
+assert.match(
+  rules.connectorTargetValidation({ id: "88", eligible: true, x: 900, y: 600 }),
+  /minimum is 70 degrees/
+);
+assert.equal(
+  rules.connectorTargetValidation({ id: "88", eligible: true, x: 900, y: 600 }, "existing"),
+  ""
+);
+state.payload.connectors = [];
 
 state.linkGrid = [{
   _bounds: { minX: 800, maxX: 800, minY: 0, maxY: 1000 },

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAZ Connector QAQC</title>
-    <link rel="stylesheet" href="/styles.css?v=20260715-instructions" />
+    <link rel="stylesheet" href="/styles.css?v=20260722-osm-performance" />
   </head>
   <body>
     <header class="topbar">
@@ -48,10 +48,11 @@
         <label class="basemap-control">Basemap
           <select id="basemapSelect">
             <option value="none">None</option>
-            <option value="road" selected>Road</option>
+            <option value="road" selected>OpenStreetMap</option>
             <option value="satellite">Satellite</option>
           </select>
         </label>
+        <div id="basemapAttribution" class="basemap-attribution"></div>
         <div class="map-help">Wheel: zoom | Drag empty map: pan | Click CC: select | Drag orange endpoint: snap</div>
         <div class="legend">
           <div class="legend-title">Legend</div>
@@ -64,7 +65,7 @@
           <label><input type="checkbox" data-layer="nodes" checked /><span class="swatch dot nonmajor"></span>Non-Major Node</label>
           <label><input type="checkbox" data-layer="connectors" checked /><span class="swatch line neighbor-cc"></span>Nearby TAZ CC</label>
           <label><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Current TAZ CC</label>
-          <div class="legend-row"><span class="swatch star">*</span>Centroid</div>
+          <div class="legend-row"><span class="swatch star">▲</span>Centroid</div>
         </div>
         <div id="featureTooltip" class="feature-tooltip hidden"></div>
         <div id="ccContextMenu" class="context-menu hidden">
@@ -86,6 +87,8 @@
           <dt>New Node</dt><dd id="newNode">-</dd>
           <dt>MAJOR_LEVEL</dt><dd id="majorLevel">-</dd>
           <dt>OUTSIDE_LEN</dt><dd id="outsideLen">-</dd>
+          <dt>END_BND_DIST</dt><dd id="endBoundaryDist">-</dd>
+          <dt>ENDPOINT TYPE</dt><dd id="endpointType">-</dd>
           <dt>LINE_NODE_DIST</dt><dd id="lineNodeDist">-</dd>
         </dl>
         <label class="note-label">QC Note</label>
@@ -113,10 +116,13 @@
           </p>
           <p>
             The number of CCs is somewhat subjective and depends on the size and shape of the TAZ. Smaller TAZs
-            usually have 1 to 2 CCs, while larger TAZs may have 3 to 5. In principle, CCs should avoid connecting
-            directly to freeways, major arterials, or intersections. These rules have already been built into the
+            usually have 1 to 2 CCs, while larger TAZs may have 3. Every feasible TAZ must keep 1 to 3 CCs.
+            CCs within one TAZ must be at least 70 degrees apart; this angle is never reduced, so delete a lower-priority
+            CC if needed. CCs cannot extend more than 200 ft outside the TAZ, cross a GSTDM link before the target node,
+            use a major node, or share a target node with another TAZ. Prefer a node within 200 ft of the TAZ boundary;
+            a farther internal node is allowed only as a labeled fallback. These rules have already been built into the
             program, so the main task is to human-review the generated results and make corrections where needed.
-            The basemap can be turned on to help review whether the connector location makes sense.
+            The OpenStreetMap basemap loads only the tiles needed for the visible map view and can be turned on to help review whether the connector location makes sense.
           </p>
           <h3>Basic workflow</h3>
           <ol>
@@ -147,11 +153,11 @@
 
     <footer class="statusbar">
       <span id="statusText">Initializing...</span>
-      <span>Rules: 1-3 CCs; non-major nodes only; max 200 ft outside TAZ; no GSTDM-link crossings; no node sharing across TAZs</span>
+      <span>Rules: 1-3 CCs; minimum 70° apart; non-major nodes only; max 200 ft outside TAZ; no GSTDM-link crossings; no node sharing across TAZs</span>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
-    <script src="/app.js?v=20260715-instructions"></script>
+    <script src="/app.js?v=20260722-taz-queue-sync"></script>
     <script>
       (() => {
         const showInstructions = () => document.getElementById("instructionsPanel")?.classList.remove("hidden");

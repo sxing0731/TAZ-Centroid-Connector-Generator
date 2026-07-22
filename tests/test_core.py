@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import geopandas as gpd
+import pytest
 from shapely.geometry import LineString, Point, Polygon
 
 from config import FieldMapping, ProcessingConfig
@@ -21,6 +22,11 @@ def silent_log(message: str, level: int = logging.INFO) -> None:
     pass
 
 
+def test_minimum_angle_cannot_be_configured_below_seventy() -> None:
+    with pytest.raises(ValueError, match="hard rule"):
+        ProcessingConfig(minimum_angle=69.9).validate_parameters()
+
+
 def test_representative_point_and_candidate_minimum() -> None:
     config = ProcessingConfig(sector_count=10, target_connector_count=3, minimum_connector_count=1)
     polygon = Polygon([(0, 0), (10000, 0), (10000, 10000), (0, 10000)])
@@ -37,7 +43,7 @@ def test_density_and_selection() -> None:
         sector_count=10,
         target_connector_count=3,
         minimum_connector_count=1,
-        minimum_angle=60,
+        minimum_angle=70,
     )
     polygon = Polygon([(0, 0), (10000, 0), (10000, 10000), (0, 10000)])
     taz = gpd.GeoDataFrame({"N": [1]}, geometry=[polygon], crs="EPSG:2240")
@@ -77,7 +83,7 @@ def test_selection_uses_density_without_safety_rejection() -> None:
     config = ProcessingConfig(
         target_connector_count=3,
         minimum_connector_count=1,
-        minimum_angle=60,
+        minimum_angle=70,
     )
     selected = select_connectors(candidates, config, silent_log)
     assert set(selected["CC_PT"]) == {"corner", "major", "low_1"}
@@ -97,7 +103,7 @@ def test_selection_finds_larger_angularly_separated_set() -> None:
     config = ProcessingConfig(
         target_connector_count=3,
         minimum_connector_count=1,
-        minimum_angle=60,
+        minimum_angle=70,
     )
     selected = select_connectors(candidates, config, silent_log)
     assert len(selected) == 3
@@ -122,6 +128,27 @@ def test_selection_reserves_each_node_to_one_taz() -> None:
     chosen = selected.set_index("N")["MATCH_NODE_IDX"].to_dict()
     assert chosen == {1: 11, 2: 10}
     assert selected.groupby("MATCH_NODE_IDX")["N"].nunique().max() == 1
+
+
+def test_selection_never_relaxes_hard_seventy_degree_angle() -> None:
+    candidates = gpd.GeoDataFrame(
+        {
+            "N": [1, 1, 1],
+            "CC_PT": ["a", "b", "c"],
+            "ANGLE_DEG": [0.0, 40.0, 80.0],
+            "DENSITY": [100.0, 90.0, 80.0],
+        },
+        geometry=[Point(0, 0), Point(1, 0), Point(2, 0)],
+        crs="EPSG:2240",
+    )
+    config = ProcessingConfig(
+        target_connector_count=3,
+        minimum_connector_count=1,
+        minimum_angle=70,
+    )
+    selected = select_connectors(candidates, config, silent_log)
+    assert set(selected["CC_PT"]) == {"a", "c"}
+    assert selected["ANGLE_THRESHOLD"].eq(70).all()
 
 
 def test_candidate_direction_matches_nearest_node_to_radial_line() -> None:
@@ -152,6 +179,44 @@ def test_candidate_direction_matches_nearest_node_to_radial_line() -> None:
     annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, ProcessingConfig())
     assert annotated["MATCH_NODE_IDX"].iloc[0] == 0
     assert annotated["LINE_NODE_DIST"].iloc[0] == 25.0
+
+
+def test_candidate_matching_prefers_boundary_node_before_internal_node() -> None:
+    taz = gpd.GeoDataFrame(
+        {"N": [1]},
+        geometry=[Polygon([(0, 0), (1000, 0), (1000, 1000), (0, 1000)])],
+        crs="EPSG:2240",
+    )
+    centroids = gpd.GeoDataFrame({"N": [1]}, geometry=[Point(500, 500)], crs=taz.crs)
+    candidates = gpd.GeoDataFrame(
+        {
+            "N": [1],
+            "CC_PT": ["1_1"],
+            "ANGLE_DEG": [90.0],
+            "ANGLE_START": [45.0],
+            "ANGLE_END": [135.0],
+            "DENSITY": [1.0],
+            "DENS_RANK": [1],
+        },
+        geometry=[Point(1000, 500)],
+        crs=taz.crs,
+    )
+    nodes = gpd.GeoDataFrame(
+        {"N": [10, 20], "MAJOR_LEVEL": [4, 4], "MAJOR_INT": ["N", "N"]},
+        geometry=[Point(700, 500), Point(950, 700)],
+        crs=taz.crs,
+    )
+    config = ProcessingConfig(boundary_endpoint_tolerance=200)
+    annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
+    assert annotated["MATCH_NODE_IDX"].iloc[0] == 1
+    assert not bool(annotated["INTERIOR_FALLBACK"].iloc[0])
+
+    internal_only = match_candidates_to_nodes(
+        candidates, centroids, taz, nodes.iloc[[0]].copy(), config
+    )
+    assert internal_only["MATCH_NODE_IDX"].iloc[0] == 0
+    assert bool(internal_only["INTERIOR_FALLBACK"].iloc[0])
+    assert internal_only["SNAP_FAIL_REASON"].iloc[0] == "INTERIOR_NODE_NO_VALID_BOUNDARY_NODE"
 
 
 def test_candidate_direction_skips_level_one_and_two_snap_nodes() -> None:

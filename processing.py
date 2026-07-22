@@ -22,7 +22,7 @@ from geometry import (
     match_candidates_to_nodes,
     snap_candidates_to_nodes,
 )
-from selection import select_connectors
+from selection import angular_difference, select_connectors
 from validation import load_and_validate_inputs
 
 LOGGER = logging.getLogger(__name__)
@@ -183,6 +183,35 @@ def run_processing(
     if cross_taz_shared_count:
         raise RuntimeError(
             f"{cross_taz_shared_count} GSTDM nodes are used by connectors from multiple TAZs."
+        )
+    angle_violations: list[tuple[object, float]] = []
+    for taz_id, group in final_lines.groupby("N"):
+        angles = [float(value) for value in group["ANGLE_DEG"]]
+        for index, first in enumerate(angles):
+            for second in angles[index + 1 :]:
+                separation = angular_difference(first, second)
+                if separation < config.minimum_angle - 1e-9:
+                    angle_violations.append((taz_id, separation))
+    if angle_violations:
+        examples = ", ".join(
+            f"TAZ {taz_id}: {angle:.2f} deg"
+            for taz_id, angle in angle_violations[:5]
+        )
+        raise RuntimeError(
+            f"{len(angle_violations)} connector pairs violate the hard "
+            f"{config.minimum_angle:g}-degree minimum angle ({examples})."
+        )
+
+    interior_fallback_count = (
+        int(final_lines["INTERIOR_FALLBACK"].fillna(False).astype(bool).sum())
+        if not final_lines.empty
+        else 0
+    )
+    if interior_fallback_count:
+        log(
+            f"{interior_fallback_count} final connectors use an internal TAZ node "
+            "because no valid boundary-near node satisfied every hard rule.",
+            logging.WARNING,
         )
 
     progress(82, "Building candidate connector lines")

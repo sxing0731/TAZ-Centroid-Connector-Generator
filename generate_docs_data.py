@@ -65,13 +65,10 @@ def spatial_subset(frame: gpd.GeoDataFrame, geom: Any) -> gpd.GeoDataFrame:
 
 
 def sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
-    issue_rank = 0 if item.get("issue") == "NO_ELIGIBLE_SECTOR_NODE" else 1
-    flag_rank = 0 if item.get("flag") == "Y" else 1
     try:
-        numeric_id: int | str = int(item["id"])
-    except ValueError:
-        numeric_id = item["id"]
-    return (flag_rank, issue_rank, numeric_id)
+        return (0, float(item["id"]), str(item["id"]))
+    except (TypeError, ValueError):
+        return (1, str(item["id"]), str(item["id"]))
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -90,6 +87,8 @@ def connector_item(row: Any, taz_id: str) -> dict[str, Any]:
         "rank": int(number(row.get("DENS_RANK"), 0) or 0),
         "majorLevel": number(row.get("MAJOR_LEVEL")),
         "outsideLen": number(row.get("OUTSIDE_LEN"), 0),
+        "endBoundaryDist": number(row.get("END_BND_DIST"), 0),
+        "interiorFallback": bool(row.get("INTERIOR_FALLBACK", False)),
         "lineNodeDist": number(row.get("LINE_NODE_DIST"), 0),
         "status": "unreviewed",
         "geom": geom_json(row.geometry),

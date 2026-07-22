@@ -44,6 +44,11 @@ Only nodes above the major-intersection cutoff are valid snap targets:
   another GSTDM LINK is blocked.
 - A GSTDM target node may belong to connectors from only one TAZ. If another
   TAZ already uses that node, choose a nearby different eligible node.
+- Final CC bearings within the same TAZ must be at least 70 degrees apart. This
+  is a hard rule; remove a candidate instead of reducing the angle.
+- Prefer a node within 200 ft of the TAZ boundary. An endpoint farther inside
+  the TAZ is allowed only as a clearly labeled fallback when no boundary-near
+  node satisfies every hard rule.
 
 Workflow:
 

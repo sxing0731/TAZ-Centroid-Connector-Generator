@@ -32,7 +32,7 @@ class ProcessingConfig:
     sector_count: int = 10
     target_connector_count: int = 3
     minimum_connector_count: int = 1
-    minimum_angle: float = 60.0
+    minimum_angle: float = 70.0
     maximum_snap_distance: float | None = None
     blocked_major_level: int = 2
     snap_blocked_major_level: int = 2
@@ -49,8 +49,8 @@ class ProcessingConfig:
             raise ValueError("Minimum connectors must be between 1 and 3.")
         if self.minimum_connector_count > self.target_connector_count:
             raise ValueError("Minimum connectors cannot exceed target connectors.")
-        if not 0 <= self.minimum_angle <= 180:
-            raise ValueError("Minimum angle must be between 0 and 180 degrees.")
+        if not 70 <= self.minimum_angle <= 180:
+            raise ValueError("Minimum angle is a hard rule and must be between 70 and 180 degrees.")
         if self.maximum_snap_distance is not None and self.maximum_snap_distance < 0:
             raise ValueError("Maximum snap distance cannot be negative.")
         if not 1 <= self.blocked_major_level <= 5:

@@ -49,6 +49,8 @@ const state = {
   basemap: "road",
   tileCache: new Map(),
   tileRetries: new Map(),
+  drawPending: false,
+  tileRedrawTimer: null,
   contextConnector: null,
   undoStack: [],
   redoStack: [],
@@ -68,6 +70,7 @@ const qs = (id) => document.getElementById(id);
 const SOURCE_PROJ =
   "+proj=lcc +lat_0=0 +lon_0=-83.5 +lat_1=31.4166666666667 +lat_2=34.2833333333333 +x_0=0 +y_0=0 +datum=NAD83 +units=us-ft +no_defs +type=crs";
 const FT_TO_M = 0.3048006096012192;
+const MIN_CC_ANGLE = 70;
 
 function toast(message) {
   const el = qs("toast");
@@ -89,13 +92,13 @@ async function init() {
   resizeCanvas();
   window.addEventListener("resize", () => {
     resizeCanvas();
-    draw();
+    scheduleDraw();
   });
 
   status("Loading all TAZs, CCs, nodes, and links...");
   state.data = await fetchJson("data/all.json");
   state.index = state.data;
-  state.tazOrder = state.data.tazOrder;
+  state.tazOrder = sortTazOrder(state.data.tazOrder);
   buildDataIndexes();
   restoreImportedCc();
   rebuildGlobalConnectorIndex();
@@ -174,8 +177,10 @@ function bindControls() {
   qs("queueFilter").addEventListener("change", renderQueue);
   qs("basemapSelect").addEventListener("change", () => {
     state.basemap = qs("basemapSelect").value;
-    draw();
+    updateBasemapAttribution();
+    scheduleDraw();
   });
+  updateBasemapAttribution();
   restoreLayerOrder();
   document.querySelectorAll(".legend input[data-layer]").forEach((input) => {
     input.addEventListener("change", () => {
@@ -360,7 +365,7 @@ function updateHoveredTaz(pt) {
   if (nextId === state.hoveredTazId) return;
   state.hoveredTazId = nextId;
   state.canvas.classList.toggle("taz-hover", Boolean(nextId));
-  draw();
+  scheduleDraw();
 }
 
 function finishPointer(event) {
@@ -458,10 +463,22 @@ function setTazStatus(tazId, qcStatus) {
   toast(`TAZ ${id} status set to ${normalized}.`);
 }
 
-function renderQueue() {
-  const filter = qs("queueFilter").value;
+function sortTazOrder(items) {
+  return [...items].sort((left, right) => {
+    const leftNumber = Number(left.id);
+    const rightNumber = Number(right.id);
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber !== rightNumber) return leftNumber - rightNumber;
+    return String(left.id).localeCompare(String(right.id), undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function renderQueue({ revealCurrent = false } = {}) {
   const list = qs("queueList");
+  const currentId = String(state.payload?.tazId ?? "");
+  if (revealCurrent && currentId) qs("queueFilter").value = "all";
+  const filter = qs("queueFilter").value;
   list.innerHTML = "";
+  let activeRow = null;
   state.tazOrder
     .filter((item) => {
       return filter === "all" || getTazStatus(item.id).toLowerCase() === filter;
@@ -469,7 +486,10 @@ function renderQueue() {
     .forEach((item) => {
       const connectorCount = state.importedCc ? (state.importedCc.get(String(item.id)) || []).length : item.connectors;
       const row = document.createElement("div");
-      row.className = `queue-item ${item.id === state.payload?.tazId ? "active" : ""}`;
+      const isCurrent = String(item.id) === currentId;
+      row.className = `queue-item ${isCurrent ? "active" : ""}`;
+      row.dataset.tazId = String(item.id);
+      if (isCurrent) activeRow = row;
       const qcStatus = getTazStatus(item.id);
       row.innerHTML = `<div><strong>${item.id}</strong><br><small>${item.issue || "No issue noted"} | ${connectorCount} CC</small></div><span class="pill ${qcStatus.toLowerCase()}">${qcStatus}</span>`;
       row.addEventListener("click", () => goToTaz(item.id));
@@ -479,6 +499,7 @@ function renderQueue() {
       });
       list.appendChild(row);
     });
+  if (revealCurrent && activeRow) activeRow.scrollIntoView({ block: "center", inline: "nearest" });
 }
 
 const SPATIAL_GRID_SIZE = 10000;
@@ -605,7 +626,7 @@ async function goToTaz(id, keepView = false) {
   qs("jumpInput").value = item.id;
   qs("currentTaz").textContent = item.id;
   if (!keepView) setViewToPayload();
-  renderQueue();
+  renderQueue({ revealCurrent: true });
   updateInspector();
   draw();
   const unavailable = state.payload.importUnavailableRows?.length || 0;
@@ -632,6 +653,8 @@ function applyImportedCc(payload) {
       nodeId: row.nodeId,
       majorLevel: node?.majorLevel ?? null,
       outsideLen: 0,
+      endBoundaryDist: node ? pointGeometryBoundaryDistance([node.x, node.y], payload.taz) : null,
+      interiorFallback: node ? pointGeometryBoundaryDistance([node.x, node.y], payload.taz) > 200 : false,
       lineNodeDist: 0,
       status: "uploaded",
       geom: geometry,
@@ -906,7 +929,33 @@ function panBy(dx, dy) {
   state.view.maxX += mx;
   state.view.minY += my;
   state.view.maxY += my;
-  draw();
+  scheduleDraw();
+}
+
+function scheduleDraw() {
+  if (state.drawPending) return;
+  state.drawPending = true;
+  requestAnimationFrame(() => {
+    state.drawPending = false;
+    draw();
+  });
+}
+
+function scheduleTileRedraw() {
+  if (state.tileRedrawTimer) return;
+  state.tileRedrawTimer = setTimeout(() => {
+    state.tileRedrawTimer = null;
+    scheduleDraw();
+  }, 50);
+}
+
+function updateBasemapAttribution() {
+  const attribution = qs("basemapAttribution");
+  if (!attribution) return;
+  attribution.classList.toggle("hidden", state.basemap === "none");
+  attribution.innerHTML = state.basemap === "satellite"
+    ? '<a href="https://www.esri.com/" target="_blank" rel="noopener">Tiles &copy; Esri</a>'
+    : '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>';
 }
 
 function draw(mousePoint = null) {
@@ -1047,7 +1096,7 @@ function getTileImage(x, y, z) {
   const img = new Image();
   img.onload = () => {
     state.tileRetries.delete(key);
-    draw();
+    scheduleTileRedraw();
   };
   img.onerror = () => {
     state.tileCache.delete(key);
@@ -1058,8 +1107,9 @@ function getTileImage(x, y, z) {
   img.src =
     state.basemap === "satellite"
       ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
-      : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`;
+      : `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
   state.tileCache.set(key, img);
+  while (state.tileCache.size > 256) state.tileCache.delete(state.tileCache.keys().next().value);
   return img;
 }
 
@@ -1198,17 +1248,32 @@ function drawNodes(kind) {
 
 function drawCentroids() {
   const ctx = state.ctx;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
   const bounds = visibleWorldBounds();
   for (const centroid of state.data.centroids) {
     if (centroid.x < bounds.minX || centroid.x > bounds.maxX || centroid.y < bounds.minY || centroid.y > bounds.maxY) continue;
     const current = String(centroid.id) === String(state.payload.tazId);
     const p = project([centroid.x, centroid.y]);
-    ctx.fillStyle = current ? "#111827" : "rgba(17,24,39,0.55)";
-    ctx.font = current ? "28px Arial" : "14px Arial";
-    ctx.fillText("*", p.x, p.y + 2);
+    drawCentroidTriangle(ctx, p, current ? 17 : 12);
   }
+}
+
+function drawCentroidTriangle(ctx, point, radius) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(point.x, point.y - radius);
+  ctx.lineTo(point.x + radius * 0.9, point.y + radius * 0.72);
+  ctx.lineTo(point.x - radius * 0.9, point.y + radius * 0.72);
+  ctx.closePath();
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(255,255,255,0.98)";
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.fillStyle = "#e00000";
+  ctx.fill();
+  ctx.strokeStyle = "#8b0000";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawGlobalLinks() {
@@ -1372,6 +1437,18 @@ function geometryBoundarySegments(geometry) {
   return segments;
 }
 
+function pointGeometryBoundaryDistance(point, geometry) {
+  let best = Infinity;
+  for (const [a, b] of geometryBoundarySegments(geometry)) {
+    best = Math.min(best, pointSegmentDistance(
+      { x: point[0], y: point[1] },
+      { x: a[0], y: a[1] },
+      { x: b[0], y: b[1] }
+    ));
+  }
+  return best;
+}
+
 function pointCoveredByGeometry(point, geometry) {
   if (pointInGeometry(point, geometry)) return true;
   return geometryBoundarySegments(geometry).some(([a, b]) => pointSegmentDistance(
@@ -1421,10 +1498,43 @@ function crossTazNodeOwner(nodeId) {
   return "";
 }
 
-function connectorTargetValidation(node) {
+function bearingDegrees(start, end) {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  return (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+}
+
+function angleDifference(first, second) {
+  const difference = Math.abs(first - second) % 360;
+  return Math.min(difference, 360 - difference);
+}
+
+function connectorAngleConflict(node, excludedCcPt = null) {
+  const proposedAngle = bearingDegrees(state.payload.centroid, [node.x, node.y]);
+  for (const connector of state.payload.connectors || []) {
+    if (excludedCcPt && connector.ccPt === excludedCcPt) continue;
+    const geometry = connector.geom;
+    const endpoint = geometry?.coordinates?.[geometry.coordinates.length - 1];
+    if (!endpoint) continue;
+    const separation = angleDifference(
+      proposedAngle,
+      bearingDegrees(state.payload.centroid, endpoint)
+    );
+    if (separation < MIN_CC_ANGLE - 1e-9) {
+      return { connector, separation };
+    }
+  }
+  return null;
+}
+
+function connectorTargetValidation(node, excludedCcPt = null) {
   if (!node?.eligible) return "Major node is locked. Choose a non-major node (MAJOR_LEVEL 3/4/5).";
   const ownerTazId = crossTazNodeOwner(node.id);
   if (ownerTazId) return `Node ${node.id} is already used by TAZ ${ownerTazId}. Choose a nearby different node.`;
+  const angleConflict = connectorAngleConflict(node, excludedCcPt);
+  if (angleConflict) {
+    return `Connector would be only ${angleConflict.separation.toFixed(1)} degrees from ${angleConflict.connector.ccPt}; minimum is ${MIN_CC_ANGLE} degrees.`;
+  }
   const endpoint = [node.x, node.y];
   const outsideLength = segmentOutsideLength(state.payload.centroid, endpoint, state.payload.taz);
   if (outsideLength > 200.000001) return `Connector would extend ${outsideLength.toFixed(1)} ft outside the TAZ; maximum is 200 ft.`;
@@ -1481,17 +1591,20 @@ function applyEditToNode(node) {
     toast("Select a connector first.");
     return;
   }
-  const validationError = connectorTargetValidation(node);
+  const validationError = connectorTargetValidation(node, state.selected.ccPt);
   if (validationError) {
     toast(validationError);
     return;
   }
   const tazId = state.payload.tazId;
   const geom = { type: "LineString", coordinates: [state.payload.centroid, [node.x, node.y]] };
+  const endBoundaryDist = pointGeometryBoundaryDistance([node.x, node.y], state.payload.taz);
   const edit = {
     nodeId: node.id,
     majorLevel: node.majorLevel,
     outsideLen: segmentOutsideLength(state.payload.centroid, [node.x, node.y], state.payload.taz),
+    endBoundaryDist,
+    interiorFallback: endBoundaryDist > 200.000001,
     status: "edited",
     note: qs("qcNote").value,
     geom,
@@ -1507,7 +1620,9 @@ function applyEditToNode(node) {
   saveLocal();
   updateInspector();
   draw();
-  toast(`Saved ${state.selected.ccPt} to node ${node.id}.`);
+  toast(endBoundaryDist > 200.000001
+    ? `Saved ${state.selected.ccPt}; interior endpoint fallback (${endBoundaryDist.toFixed(1)} ft from boundary).`
+    : `Saved ${state.selected.ccPt} to boundary-near node ${node.id}.`);
 }
 
 function clearSelection() {
@@ -1592,6 +1707,16 @@ function updateInspector() {
   qs("newNode").textContent = state.pendingNode?.id || "-";
   qs("majorLevel").textContent = state.pendingNode?.majorLevel ?? c?.majorLevel ?? "-";
   qs("outsideLen").textContent = c?.outsideLen != null ? `${Number(c.outsideLen).toFixed(1)} ft` : "-";
+  const pendingBoundaryDist = state.pendingNode
+    ? pointGeometryBoundaryDistance([state.pendingNode.x, state.pendingNode.y], state.payload.taz)
+    : null;
+  const endBoundaryDist = pendingBoundaryDist ?? c?.endBoundaryDist;
+  qs("endBoundaryDist").textContent = endBoundaryDist != null ? `${Number(endBoundaryDist).toFixed(1)} ft` : "-";
+  qs("endpointType").textContent = endBoundaryDist == null
+    ? "-"
+    : endBoundaryDist <= 200.000001
+      ? "BOUNDARY-NEAR"
+      : "INTERIOR FALLBACK";
   qs("lineNodeDist").textContent = c?.lineNodeDist != null ? `${Number(c.lineNodeDist).toFixed(1)} ft` : "-";
   qs("dirtyBadge").classList.toggle("hidden", !state.dirty);
   const noteKey = c ? `${tazId}:${c.ccPt}` : `${tazId}:TAZ`;
@@ -1664,11 +1789,14 @@ function addConnector(node) {
   const tazId = state.payload.tazId;
   pushEditHistory();
   const count = (state.edits[tazId]?.added?.length || 0) + 1;
+  const endBoundaryDist = pointGeometryBoundaryDistance([node.x, node.y], state.payload.taz);
   const connector = {
     ccPt: `${tazId}_ADD${count}`,
     nodeId: node.id,
     majorLevel: node.majorLevel,
     outsideLen: segmentOutsideLength(state.payload.centroid, [node.x, node.y], state.payload.taz),
+    endBoundaryDist,
+    interiorFallback: endBoundaryDist > 200.000001,
     lineNodeDist: 0,
     status: "added",
     geom: { type: "LineString", coordinates: [state.payload.centroid, [node.x, node.y]] },
@@ -1682,7 +1810,9 @@ function addConnector(node) {
   updateAddModeUi();
   saveLocal();
   selectConnector(connector);
-  toast(`Added ${connector.ccPt}.`);
+  toast(endBoundaryDist > 200.000001
+    ? `Added ${connector.ccPt} as an interior endpoint fallback.`
+    : `Added ${connector.ccPt} at a boundary-near node.`);
 }
 
 function markReviewed() {
@@ -1703,8 +1833,27 @@ async function allConnectorsForExport() {
     applyImportedCc(payload);
     applySavedEdits(payload);
     const tazNote = state.edits[payload.tazId]?.note || "";
-    for (const c of payload.connectors) rows.push({ A: payload.tazId, B: c.nodeId, FCLASS: 32, QC_NOTES: c.note ?? tazNote });
-    for (const c of payload.importUnavailableRows || []) rows.push({ A: payload.tazId, B: c.nodeId, FCLASS: 32, QC_NOTES: c.note ?? tazNote });
+    for (const c of payload.connectors) {
+      const endpoint = c.geom?.coordinates?.[c.geom.coordinates.length - 1];
+      rows.push({
+        A: payload.tazId,
+        B: c.nodeId,
+        FCLASS: 32,
+        QC_NOTES: c.note ?? tazNote,
+        ANGLE_DEG: endpoint ? bearingDegrees(payload.centroid, endpoint) : null,
+      });
+    }
+    for (const c of payload.importUnavailableRows || []) {
+      const geometry = c.geometry || c.geom;
+      const endpoint = geometry?.coordinates?.[geometry.coordinates.length - 1];
+      rows.push({
+        A: payload.tazId,
+        B: c.nodeId,
+        FCLASS: 32,
+        QC_NOTES: c.note ?? tazNote,
+        ANGLE_DEG: endpoint ? bearingDegrees(payload.centroid, endpoint) : null,
+      });
+    }
   }
   return rows;
 }
@@ -1723,6 +1872,33 @@ function findCrossTazNodeConflicts(rows) {
     .map(([nodeId, tazIds]) => ({ nodeId, tazIds: Array.from(tazIds).sort() }));
 }
 
+function findTazAngleConflicts(rows) {
+  const byTaz = new Map();
+  for (const row of rows) {
+    const tazId = String(row.A ?? "").replace(/\.0+$/, "");
+    const angle = Number(row.ANGLE_DEG);
+    if (!tazId || !Number.isFinite(angle)) continue;
+    if (!byTaz.has(tazId)) byTaz.set(tazId, []);
+    byTaz.get(tazId).push({ nodeId: String(row.B ?? ""), angle });
+  }
+  const conflicts = [];
+  for (const [tazId, connectors] of byTaz) {
+    for (let first = 0; first < connectors.length; first += 1) {
+      for (let second = first + 1; second < connectors.length; second += 1) {
+        const separation = angleDifference(connectors[first].angle, connectors[second].angle);
+        if (separation < MIN_CC_ANGLE - 1e-9) {
+          conflicts.push({
+            tazId,
+            nodeIds: [connectors[first].nodeId, connectors[second].nodeId],
+            separation,
+          });
+        }
+      }
+    }
+  }
+  return conflicts;
+}
+
 async function exportFinalCc() {
   const format = document.querySelector('input[name="exportFormat"]:checked')?.value || "dbf";
   const includeNotes = qs("includeQcNotes").checked;
@@ -1734,6 +1910,13 @@ async function exportFinalCc() {
     const examples = conflicts.slice(0, 4).map((item) => `${item.nodeId}: TAZ ${item.tazIds.join("/")}`).join("; ");
     toast(`Resolve ${conflicts.length} cross-TAZ shared node(s) before export.`);
     status(`Final CC export blocked. Shared nodes: ${examples}${conflicts.length > 4 ? "; ..." : ""}`);
+    return;
+  }
+  const angleConflicts = findTazAngleConflicts(sourceRows);
+  if (angleConflicts.length) {
+    const examples = angleConflicts.slice(0, 4).map((item) => `TAZ ${item.tazId}: ${item.separation.toFixed(1)} deg`).join("; ");
+    toast(`Resolve ${angleConflicts.length} connector angle conflict(s) before export.`);
+    status(`Final CC export blocked. Minimum separation is ${MIN_CC_ANGLE} degrees. ${examples}${angleConflicts.length > 4 ? "; ..." : ""}`);
     return;
   }
   const rows = [];

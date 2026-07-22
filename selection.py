@@ -21,6 +21,7 @@ def _select_with_angle(
     ranked: gpd.GeoDataFrame,
     target: int,
     angle_threshold: float,
+    angle_column: str = "ANGLE_DEG",
 ) -> list[int]:
     if ranked.empty:
         return []
@@ -31,11 +32,11 @@ def _select_with_angle(
     solutions: list[list[int]] = []
     for seed_index in ranked.index:
         selected_indices = [seed_index]
-        selected_angles = [float(ranked.at[seed_index, "ANGLE_DEG"])]
+        selected_angles = [float(ranked.at[seed_index, angle_column])]
         for index, row in ranked.iterrows():
             if index == seed_index:
                 continue
-            angle = float(row["ANGLE_DEG"])
+            angle = float(row[angle_column])
             if all(
                 angular_difference(angle, existing) >= angle_threshold
                 for existing in selected_angles
@@ -109,26 +110,14 @@ def select_connectors(
             ascending=[False, True],
         )
         threshold = config.minimum_angle
+        angle_column = "MATCH_ANGLE_DEG" if "MATCH_ANGLE_DEG" in ranked.columns else "ANGLE_DEG"
         indices = _select_with_angle(
-            ranked, config.target_connector_count, threshold
+            ranked, config.target_connector_count, threshold, angle_column
         )
-        while (
-            len(indices) < config.minimum_connector_count
-            and threshold > 0
-        ):
-            threshold = max(0.0, threshold - 5.0)
-            indices = _select_with_angle(
-                ranked, config.target_connector_count, threshold
-            )
-        if threshold < config.minimum_angle:
-            log(
-                f"TAZ {taz_id}: angle threshold relaxed from "
-                f"{config.minimum_angle:g} deg to {threshold:g} deg.",
-                30,
-            )
         if len(indices) < config.minimum_connector_count:
             log(
-                f"TAZ {taz_id}: only {len(indices)} connectors could be selected.",
+                f"TAZ {taz_id}: only {len(indices)} connectors satisfy the hard "
+                f"{threshold:g}-degree minimum angle.",
                 30,
             )
         chosen = ranked.loc[indices].copy()

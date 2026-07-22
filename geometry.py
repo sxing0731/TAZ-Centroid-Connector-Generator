@@ -266,9 +266,11 @@ def match_candidates_to_nodes(
     matched_boundary_distances: list[float] = []
     matched_major_levels: list[int | None] = []
     matched_major_ints: list[str] = []
+    matched_angles: list[float] = []
     snap_allowed: list[bool] = []
     fail_reasons: list[str] = []
     snap_fallbacks: list[bool] = []
+    interior_fallbacks: list[bool] = []
 
     def level_is_allowed(index: int) -> bool:
         return _snap_level_allowed(major_levels[index], config)
@@ -280,9 +282,11 @@ def match_candidates_to_nodes(
         matched_boundary_distances.append(float("inf"))
         matched_major_levels.append(None)
         matched_major_ints.append("N")
+        matched_angles.append(float("nan"))
         snap_allowed.append(False)
         fail_reasons.append(reason)
         snap_fallbacks.append(False)
+        interior_fallbacks.append(False)
 
     def choose_best_node(
         row,
@@ -346,6 +350,16 @@ def match_candidates_to_nodes(
                 continue
             boundary_distance = float(node_geometries[index].distance(boundary))
             nearby_allowed.append((index, boundary_distance))
+        boundary_allowed = [
+            item
+            for item in nearby_allowed
+            if item[1] <= config.boundary_endpoint_tolerance + 1e-6
+        ]
+        interior_allowed = [
+            item
+            for item in nearby_allowed
+            if item[1] > config.boundary_endpoint_tolerance + 1e-6
+        ]
 
         if not nearby_allowed and not allowed_indices:
             for _ in group.itertuples():
@@ -358,24 +372,47 @@ def match_candidates_to_nodes(
                 row,
                 center,
                 polygon,
-                nearby_allowed,
+                boundary_allowed,
                 require_sector=True,
                 enforce_snap_distance=True,
             )
             used_fallback = False
+            used_interior_fallback = False
             fallback_reason = ""
             if best is None:
                 best = choose_best_node(
                     row,
                     center,
                     polygon,
-                    nearby_allowed,
+                    boundary_allowed,
                     require_sector=False,
                     enforce_snap_distance=True,
                 )
                 if best is not None:
                     used_fallback = True
-                    fallback_reason = "FALLBACK_NON_MAJOR_NODE_WITHIN_LIMITS"
+                    fallback_reason = "FALLBACK_BOUNDARY_NODE_OUTSIDE_SECTOR"
+            if best is None:
+                best = choose_best_node(
+                    row,
+                    center,
+                    polygon,
+                    interior_allowed,
+                    require_sector=True,
+                    enforce_snap_distance=True,
+                )
+                if best is None:
+                    best = choose_best_node(
+                        row,
+                        center,
+                        polygon,
+                        interior_allowed,
+                        require_sector=False,
+                        enforce_snap_distance=True,
+                    )
+                if best is not None:
+                    used_fallback = True
+                    used_interior_fallback = True
+                    fallback_reason = "INTERIOR_NODE_NO_VALID_BOUNDARY_NODE"
             if best is None:
                 append_no_match("NO_NON_MAJOR_NODE_WITHIN_LIMITS")
                 continue
@@ -386,9 +423,11 @@ def match_candidates_to_nodes(
             matched_boundary_distances.append(boundary_distance)
             matched_major_levels.append(major_levels[node_index])
             matched_major_ints.append(major_ints[node_index])
+            matched_angles.append(bearing_degrees(center, node_geometries[node_index]))
             snap_allowed.append(True)
             fail_reasons.append(fallback_reason if used_fallback else "")
             snap_fallbacks.append(used_fallback)
+            interior_fallbacks.append(used_interior_fallback)
 
     result = candidates.copy()
     result["MATCH_NODE_IDX"] = matched_node_indices
@@ -397,9 +436,11 @@ def match_candidates_to_nodes(
     result["MATCH_BND_DIST"] = matched_boundary_distances
     result["MAJOR_LEVEL"] = matched_major_levels
     result["MAJOR_INT"] = matched_major_ints
+    result["MATCH_ANGLE_DEG"] = matched_angles
     result["SNAP_ALLOWED"] = snap_allowed
     result["SNAP_FAIL_REASON"] = fail_reasons
     result["SNAP_FALLBACK"] = snap_fallbacks
+    result["INTERIOR_FALLBACK"] = interior_fallbacks
     return result
 
 
@@ -487,7 +528,7 @@ def snap_candidates_to_nodes(
             "CC_NODE": node_ids[nearest_index] if snap_ok else None,
             "DENSITY": row.DENSITY,
             "DENS_RANK": row.DENS_RANK,
-            "ANGLE_DEG": row.ANGLE_DEG,
+            "ANGLE_DEG": getattr(row, "MATCH_ANGLE_DEG", row.ANGLE_DEG),
             "NEAR_DIST": distance,
             "SNAP_OK": bool(snap_ok),
             "LINE_NODE_DIST": row.LINE_NODE_DIST,
@@ -497,6 +538,7 @@ def snap_candidates_to_nodes(
             "SNAP_ALLOWED": bool(level_allowed and match_allowed),
             "SNAP_FAIL_REASON": getattr(row, "SNAP_FAIL_REASON", ""),
             "SNAP_FALLBACK": bool(getattr(row, "SNAP_FALLBACK", False)),
+            "INTERIOR_FALLBACK": bool(getattr(row, "INTERIOR_FALLBACK", False)),
             "NODE_CONFLICTS_AVOIDED": int(getattr(row, "NODE_CONFLICTS_AVOIDED", 0)),
             "END_BND_DIST": boundary_distance,
             "END_ON_BND": boundary_distance <= config.boundary_endpoint_tolerance,
@@ -523,7 +565,7 @@ def snap_candidates_to_nodes(
         "N", "CC_PT", "SECTOR_ID", "CC_NODE", "DENSITY", "DENS_RANK",
         "ANGLE_DEG", "NEAR_DIST", "SNAP_OK", "LINE_NODE_DIST",
         "MATCH_BND_DIST", "MAJOR_LEVEL", "MAJOR_INT", "SNAP_ALLOWED",
-        "SNAP_FAIL_REASON", "NODE_CONFLICTS_AVOIDED", "END_BND_DIST", "END_ON_BND", "CROSSES_TAZ",
+        "SNAP_FAIL_REASON", "INTERIOR_FALLBACK", "NODE_CONFLICTS_AVOIDED", "END_BND_DIST", "END_ON_BND", "CROSSES_TAZ",
         "OUTSIDE_LEN", "CROSSES_GSTDM", "geometry",
     ]
     snapped = gpd.GeoDataFrame(point_records, columns=columns, geometry="geometry", crs=nodes.crs)

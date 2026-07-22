@@ -51,6 +51,28 @@ async function main() {
     ]),
     [{ nodeId: "77", tazIds: ["1", "2"] }]
   );
+  const angleStart = appSource.indexOf("function findTazAngleConflicts");
+  const angleEnd = appSource.indexOf("async function exportFinalCc", angleStart);
+  assert.ok(angleStart >= 0 && angleEnd > angleStart, "70-degree export audit should be present");
+  const angleFactory = new Function(
+    "angleDifference",
+    "MIN_CC_ANGLE",
+    `${appSource.slice(angleStart, angleEnd)}; return findTazAngleConflicts;`
+  );
+  const angleDifference = (first, second) => {
+    const difference = Math.abs(first - second) % 360;
+    return Math.min(difference, 360 - difference);
+  };
+  const findAngleConflicts = angleFactory(angleDifference, 70);
+  assert.deepEqual(
+    findAngleConflicts([
+      { A: "1", B: "10", ANGLE_DEG: 0 },
+      { A: "1", B: "20", ANGLE_DEG: 40 },
+      { A: "2", B: "30", ANGLE_DEG: 0 },
+      { A: "2", B: "40", ANGLE_DEG: 80 },
+    ]),
+    [{ tazId: "1", nodeIds: ["10", "20"], separation: 40 }]
+  );
   console.log("QCNOTES DBF and CSV export tests passed");
 }
 

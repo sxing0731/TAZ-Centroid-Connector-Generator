@@ -37,7 +37,7 @@ class ConnectorApp(ttk.Frame):
             "sector_count": tk.StringVar(value="10"),
             "target_count": tk.StringVar(value="3"),
             "minimum_count": tk.StringVar(value="1"),
-            "minimum_angle": tk.StringVar(value="60"),
+            "minimum_angle": tk.StringVar(value="70"),
             "maximum_snap": tk.StringVar(value=""),
             "blocked_major_level": tk.StringVar(value="2"),
             "snap_blocked_major_level": tk.StringVar(value="2"),
