@@ -46,6 +46,16 @@ def _id_text(value: object) -> str:
     return str(value)
 
 
+def _queue_status(connectors: int, statuses: set[str]) -> str:
+    if connectors == 0:
+        return "flag_no_cc"
+    if statuses & {"edited", "added"}:
+        return "edited"
+    if statuses == {"reviewed"}:
+        return "reviewed"
+    return "waiting_for_qc"
+
+
 def _bearing_degrees(start, end) -> float:
     return float(
         (math.degrees(math.atan2(end.x - start.x, end.y - start.y)) + 360.0)
@@ -224,13 +234,7 @@ class QAQCDataStore:
             taz_id = row["TAZ_ID_TEXT"]
             connectors = int(summary.get(taz_id, 0))
             statuses = status_lookup.get(taz_id, set())
-            reviewed = connectors > 0 and bool(statuses) and "unreviewed" not in statuses
-            if connectors == 0:
-                queue_status = "flag_no_cc"
-            elif reviewed:
-                queue_status = "reviewed"
-            else:
-                queue_status = "taz"
+            queue_status = _queue_status(connectors, statuses)
             order.append(
                 {
                     "id": taz_id,
@@ -238,7 +242,7 @@ class QAQCDataStore:
                     "flag": str(flag_lookup.get(taz_id, "N")),
                     "issue": str(issue_lookup.get(taz_id, "")),
                     "queueStatus": queue_status,
-                    "reviewed": reviewed,
+                    "reviewed": queue_status == "reviewed",
                 }
             )
         order.sort(key=lambda item: _taz_id_sort_key(item["id"]))
@@ -349,7 +353,7 @@ class QAQCDataStore:
         taz_id: str,
         node_id: str,
         exclude_cc_pt: str | None = None,
-    ) -> tuple[object, LineString, float]:
+    ) -> tuple[object, LineString, float, bool]:
         node_row = self._node_lookup.loc[node_id]
         if not bool(node_row["SNAP_ELIG"]):
             raise ValueError(
@@ -375,36 +379,16 @@ class QAQCDataStore:
         node = node_row.geometry
         polygon = self._taz_lookup.loc[taz_id].geometry
         connector = LineString([centroid, node])
-        proposed_angle = _bearing_degrees(centroid, node)
-        peers = self.lines[self.lines["TAZ_ID_TEXT"] == taz_id]
-        if exclude_cc_pt:
-            peers = peers[peers["CC_PT"] != exclude_cc_pt]
-        for peer in peers.itertuples():
-            coordinates = list(peer.geometry.coords)
-            if not coordinates:
-                continue
-            peer_endpoint = Point(coordinates[-1])
-            separation = _angular_difference(
-                proposed_angle,
-                _bearing_degrees(centroid, peer_endpoint),
-            )
-            if separation < MIN_CC_ANGLE - 1e-9:
-                raise ValueError(
-                    f"Connector would be only {separation:.1f} degrees from "
-                    f"{peer.CC_PT}; minimum is {MIN_CC_ANGLE:g} degrees"
-                )
         outside_length = float(connector.difference(polygon).length)
-        if outside_length > MAX_OUTSIDE_FEET + 1e-6:
-            raise ValueError(
-                f"Connector would extend {outside_length:.1f} ft outside TAZ {taz_id}; maximum is {MAX_OUTSIDE_FEET:g} ft"
-            )
         endpoint_zone = node.buffer(0.01)
+        crosses_gstdm = False
         link_indices = self.gstdm_links.sindex.query(connector, predicate="intersects")
         for index in link_indices:
             intersection = connector.intersection(self.gstdm_links.geometry.iloc[int(index)])
             if not intersection.difference(endpoint_zone).is_empty:
-                raise ValueError("Connector would cross a GSTDM link before reaching the target node")
-        return node_row, connector, outside_length
+                crosses_gstdm = True
+                break
+        return node_row, connector, outside_length, crosses_gstdm
 
     def save_edit(self, payload: dict) -> dict:
         cc_pt = str(payload.get("ccPt", ""))
@@ -419,7 +403,7 @@ class QAQCDataStore:
             raise ValueError(f"Connector {cc_pt} not found")
         index = matches[0]
         taz_id = self.lines.at[index, "TAZ_ID_TEXT"]
-        node_row, connector, outside_length = self._validate_target(
+        node_row, connector, outside_length, crosses_gstdm = self._validate_target(
             taz_id, node_id, exclude_cc_pt=cc_pt
         )
         self._push_history()
@@ -438,7 +422,7 @@ class QAQCDataStore:
         self.lines.at[index, "INTERIOR_FALLBACK"] = bool(self.lines.at[index, "END_BND_DIST"] > 200.0)
         self.lines.at[index, "CROSSES_TAZ"] = bool(connector.difference(polygon).length > 1e-6)
         self.lines.at[index, "OUTSIDE_LEN"] = outside_length
-        self.lines.at[index, "CROSSES_GSTDM"] = False
+        self.lines.at[index, "CROSSES_GSTDM"] = crosses_gstdm
         self.lines.at[index, "MAJOR_LEVEL"] = node_row["MAJOR_LEVEL"]
         self.lines.at[index, "MAJOR_INT"] = node_row["MAJOR_INT"]
         self.lines.at[index, "QC_STATUS"] = "edited"
@@ -457,10 +441,7 @@ class QAQCDataStore:
             raise ValueError(f"TAZ {taz_id} not found")
         if node_id not in self._node_lookup.index:
             raise ValueError(f"Node {node_id} not found")
-        if int((self.lines["TAZ_ID_TEXT"] == taz_id).sum()) >= MAX_CONNECTORS:
-            raise ValueError(f"TAZ {taz_id} already has the maximum of {MAX_CONNECTORS} connectors")
-
-        node_row, connector, outside_length = self._validate_target(taz_id, node_id)
+        node_row, connector, outside_length, crosses_gstdm = self._validate_target(taz_id, node_id)
         self._push_history()
         centroid = self._centroid_lookup.loc[taz_id]
         node = node_row.geometry
@@ -491,7 +472,7 @@ class QAQCDataStore:
                 "INTERIOR_FALLBACK": boundary_distance > 200.0,
                 "CROSSES_TAZ": outside_length > 1e-6,
                 "OUTSIDE_LEN": outside_length,
-                "CROSSES_GSTDM": False,
+                "CROSSES_GSTDM": crosses_gstdm,
                 "QC_STATUS": "added",
                 "QC_NOTE": note,
                 "QC_TIME": datetime.now().isoformat(timespec="seconds"),
@@ -517,7 +498,7 @@ class QAQCDataStore:
     def mark_reviewed(self, taz_id: str, note: str = "") -> dict:
         self._push_history()
         mask = self.lines["TAZ_ID_TEXT"] == taz_id
-        self.lines.loc[mask & (self.lines["QC_STATUS"] != "edited"), "QC_STATUS"] = "reviewed"
+        self.lines.loc[mask, "QC_STATUS"] = "reviewed"
         self.lines.loc[mask, "QC_NOTE"] = note
         self.lines.loc[mask, "QC_TIME"] = datetime.now().isoformat(timespec="seconds")
         self._write_outputs()
@@ -531,10 +512,9 @@ class QAQCDataStore:
         if not matches:
             raise ValueError(f"Connector {cc_pt} not found")
         taz_id = self.lines.at[matches[0], "TAZ_ID_TEXT"]
-        if int((self.lines["TAZ_ID_TEXT"] == taz_id).sum()) <= MIN_CONNECTORS:
-            raise ValueError(f"TAZ {taz_id} must keep at least {MIN_CONNECTORS} connector")
         self._push_history()
         self.lines = self.lines.drop(index=matches).reset_index(drop=True)
+        self.lines.loc[self.lines["TAZ_ID_TEXT"] == taz_id, "QC_STATUS"] = "edited"
         self._write_outputs()
         return {"ok": True, "tazId": taz_id, "ccPt": cc_pt, **self.history_state()}
 

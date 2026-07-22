@@ -5,4 +5,4 @@ numpy>=1.26
 pyproj>=3.6
 pyogrio>=0.7
 rtree>=1.2
-
+mapbox-vector-tile>=2.2,<3

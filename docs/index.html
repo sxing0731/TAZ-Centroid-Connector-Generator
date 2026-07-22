@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAZ Connector QAQC</title>
-    <link rel="stylesheet" href="styles.css?v=20260722-osm-performance" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="styles.css?v=20260722-here-miss-tables" />
   </head>
   <body>
     <header class="topbar">
@@ -15,25 +16,33 @@
           <span id="runFolder">Loading public data...</span>
         </div>
       </div>
-      <button id="prevBtn">Previous TAZ</button>
-      <button id="nextBtn">Next TAZ</button>
-      <button id="zoomAllBtn">Zoom All</button>
-      <button id="undoBtn" disabled>Undo Edit</button>
-      <button id="redoBtn" disabled>Redo Edit</button>
-      <button id="saveBtn" class="primary hidden">Save Edit</button>
-      <button id="addCcBtn">Add CC</button>
-      <button id="reviewedBtn">Mark Reviewed</button>
-      <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
-      <button id="jumpBtn">Go</button>
-      <button id="finalExportBtn">Final CC Export</button>
-      <button id="tazStatusExportBtn">Export TAZ QC Status</button>
-      <button id="loadCcBtn">Load CC File</button>
-      <input id="ccFileInput" class="hidden" type="file" multiple accept=".dbf,.csv,.cvs,.shp,.json,.geojson" />
-      <button id="resetCcBtn" class="hidden">Use Default CC</button>
-      <button id="resetBrowserDataBtn" class="reset-data" title="Delete this tool's browser-saved work and reload the initial data">Reset Browser Data</button>
-      <button id="instructionsBtn">Instructions for Users</button>
-      <div id="uploadBadge" class="badge upload-badge hidden"></div>
-      <div id="dirtyBadge" class="badge hidden">Unsaved edit</div>
+      <div class="toolbar-actions">
+        <button id="prevBtn">Previous TAZ</button>
+        <button id="nextBtn">Next TAZ</button>
+        <button id="zoomAllBtn">Zoom All</button>
+        <button id="undoBtn" disabled>Undo Edit</button>
+        <button id="redoBtn" disabled>Redo Edit</button>
+        <button id="saveBtn" class="primary hidden">Save Edit</button>
+        <button id="addCcBtn">Add CC</button>
+        <button id="addMissingLinkBtn">Add Missing Links</button>
+        <button id="exportMissingLinksBtn">Export HERE_MISS</button>
+        <button id="reviewedBtn">Mark Reviewed</button>
+        <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
+        <button id="jumpBtn">Go</button>
+        <button id="finalExportBtn">Final CC Export</button>
+        <button id="tazStatusExportBtn">Export TAZ QC Status</button>
+        <button id="loadCcBtn">Load CC File</button>
+        <input id="ccFileInput" class="hidden" type="file" multiple accept=".dbf,.csv,.cvs,.shp,.json,.geojson" />
+        <button id="resetCcBtn" class="hidden">Use Default CC</button>
+        <button id="resetBrowserDataBtn" class="reset-data" title="Delete this tool's browser-saved work and reload the initial data">Reset Browser Data</button>
+        <button id="instructionsBtn">Instructions for Users</button>
+        <div id="uploadBadge" class="badge upload-badge hidden"></div>
+        <div id="dirtyBadge" class="badge hidden">Unsaved edit</div>
+      </div>
+      <div class="header-stats" aria-label="Dataset statistics">
+        <div class="header-stat"><strong id="tazStat">--</strong><span>TAZs</span></div>
+        <div class="header-stat"><strong id="ccStat">--</strong><span>CCs</span></div>
+      </div>
     </header>
 
     <dialog id="exportDialog" class="export-dialog" aria-labelledby="exportDialogTitle">
@@ -83,21 +92,50 @@
       </div>
     </dialog>
 
+    <dialog id="missingLinksExportDialog" class="export-dialog" aria-labelledby="missingLinksExportDialogTitle">
+      <div class="export-dialog-head">
+        <h2 id="missingLinksExportDialogTitle">Export HERE_MISS Links</h2>
+        <button id="closeMissingLinksExportDialogBtn" type="button" title="Close HERE_MISS export options">x</button>
+      </div>
+      <div class="export-dialog-body">
+        <fieldset>
+          <legend>Format</legend>
+          <div class="export-format-options">
+            <label><input type="radio" name="missingLinksExportFormat" value="dbf" checked /> DBF</label>
+            <label><input type="radio" name="missingLinksExportFormat" value="csv" /> CSV</label>
+          </div>
+        </fieldset>
+        <p class="export-hint">Each link exports as two records: A to B and B to A, with LANES=1, HERE_MISS=1, and FCLASS=7.</p>
+      </div>
+      <div class="export-dialog-actions">
+        <button id="cancelMissingLinksExportBtn" type="button">Cancel</button>
+        <button id="downloadMissingLinksExportBtn" type="button" class="primary">Download</button>
+      </div>
+    </dialog>
+
     <main class="layout">
       <aside class="sidebar">
         <div class="panel-head">
-          <h2>TAZ Queue</h2>
-          <select id="queueFilter">
-            <option value="all">All</option>
-            <option value="flag">Flag</option>
-            <option value="edited">Edited</option>
-            <option value="reviewed">Reviewed</option>
-          </select>
+          <div class="list-heading">
+            <h2>TAZ List</h2>
+            <span id="tazListCount">0 shown</span>
+          </div>
+          <label class="queue-filter">
+            <span>Filter</span>
+            <select id="queueFilter">
+              <option value="all">All</option>
+              <option value="waiting for qc">Waiting for QC</option>
+              <option value="flag">Flag</option>
+              <option value="edited">Edited</option>
+              <option value="reviewed">Reviewed</option>
+            </select>
+          </label>
         </div>
         <div id="queueList" class="queue"></div>
       </aside>
 
       <section class="map-wrap">
+        <div id="maplibreMap" aria-label="MapLibre vector map"></div>
         <canvas id="mapCanvas"></canvas>
         <label class="basemap-control">Basemap
           <select id="basemapSelect">
@@ -107,15 +145,20 @@
           </select>
         </label>
         <div id="basemapAttribution" class="basemap-attribution"></div>
-        <div class="map-help">Wheel/double tap/pinch: zoom | Drag map: pan | Click TAZ/CC: select | Drag endpoint: snap</div>
+        <div class="map-help">Wheel/pinch: zoom | Drag map: pan | Double-click TAZ: select | Click CC: select | Drag endpoint: snap</div>
         <div class="legend">
           <div class="legend-title">Legend <small>drag · top = front</small></div>
+          <div class="other-taz-visibility">
+            <label for="otherTazVisibility"><span>Other TAZ visibility</span><output id="otherTazVisibilityValue" for="otherTazVisibility">55%</output></label>
+            <input id="otherTazVisibility" type="range" min="0" max="100" step="5" value="55" aria-label="Other TAZ visibility" />
+          </div>
           <div id="legendLayers">
             <label class="legend-layer" data-layer-row="tazLabels"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="tazLabels" checked /><span class="swatch text-label">123</span>TAZ Labels</label>
             <label class="legend-layer" data-layer-row="centroids"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="centroids" checked /><span class="swatch star">▲</span>Centroid</label>
             <label class="legend-layer" data-layer-row="connectors"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Centroid Connector</label>
+            <label class="legend-layer" data-layer-row="hereMiss"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="hereMiss" checked /><span class="swatch line here-miss"></span>HERE_MISS Links</label>
             <label class="legend-layer" data-layer-row="majorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="majorNodes" checked /><span class="swatch dot major"></span>Major Node</label>
-            <label class="legend-layer" data-layer-row="nonMajorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="nonMajorNodes" checked /><span class="swatch dot nonmajor"></span>Non-Major Node</label>
+            <label class="legend-layer" data-layer-row="nonMajorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="nonMajorNodes" checked /><span class="swatch dot nonmajor"></span>Non-Major Nodes / clusters</label>
             <label class="legend-layer" data-layer-row="gstdm"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="gstdm" checked /><span class="swatch line gstdm"></span>GSTDM Links</label>
             <label class="legend-layer" data-layer-row="allTaz"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="allTaz" checked /><span class="swatch poly all"></span>TAZ Boundary (658)</label>
           </div>
@@ -125,8 +168,12 @@
           <button id="ctxAddCcBtn">Add new CC</button>
           <button id="ctxDeleteCcBtn" class="danger">Delete this CC</button>
         </div>
+        <div id="missingLinkContextMenu" class="context-menu missing-link-menu hidden">
+          <button id="ctxDeleteMissingLinkBtn" class="danger">Delete missing link</button>
+        </div>
         <div id="tazStatusMenu" class="context-menu status-menu hidden">
           <div id="tazStatusMenuTitle" class="context-menu-title">TAZ status</div>
+          <button data-taz-status="WAITING FOR QC"><span class="status-dot waiting-for-qc"></span>WAITING FOR QC</button>
           <button data-taz-status="FLAG"><span class="status-dot flag"></span>FLAG</button>
           <button data-taz-status="EDITED"><span class="status-dot edited"></span>EDITED</button>
           <button data-taz-status="REVIEWED"><span class="status-dot reviewed"></span>REVIEWED</button>
@@ -134,27 +181,43 @@
         <div id="toast" class="toast hidden"></div>
       </section>
 
-      <aside class="inspector">
-        <div class="panel-head">
-          <h2>Selected Connector</h2>
-          <button id="clearBtn" title="Clear selection">x</button>
+      <aside id="inspector" class="inspector">
+        <div id="inspectorResizer" class="inspector-resizer" title="Drag to resize tables" aria-hidden="true"></div>
+        <div class="panel-head inspector-head">
+          <h2>QAQC Tables</h2>
+          <button id="clearBtn" title="Clear map and table selection">x</button>
         </div>
-        <dl>
-          <dt>Current TAZ</dt><dd id="currentTaz">-</dd>
-          <dt>CC_PT</dt><dd id="ccPt">Select a connector</dd>
-          <dt>Current Node</dt><dd id="currentNode">-</dd>
-          <dt>New Node</dt><dd id="newNode">-</dd>
-          <dt>MAJOR_LEVEL</dt><dd id="majorLevel">-</dd>
-          <dt>OUTSIDE_LEN</dt><dd id="outsideLen">-</dd>
-          <dt>END_BND_DIST</dt><dd id="endBoundaryDist">-</dd>
-          <dt>ENDPOINT TYPE</dt><dd id="endpointType">-</dd>
-          <dt>LINE_NODE_DIST</dt><dd id="lineNodeDist">-</dd>
-        </dl>
+        <div class="inspector-tabs" role="tablist" aria-label="QAQC tables">
+          <button id="ccTableTab" class="inspector-tab active" type="button" role="tab" aria-selected="true" data-inspector-tab="cc">CC <span id="ccTableCount">0</span></button>
+          <button id="missingLinkTableTab" class="inspector-tab" type="button" role="tab" aria-selected="false" data-inspector-tab="missing">Missing Links <span id="missingLinkTableCount">0</span></button>
+          <button id="tazStatusTableTab" class="inspector-tab" type="button" role="tab" aria-selected="false" data-inspector-tab="taz">TAZ Status <span id="tazStatusTableCount">0</span></button>
+        </div>
+        <div class="inspector-table-wrap">
+          <div id="ccTablePanel" class="inspector-table-panel" role="tabpanel" aria-labelledby="ccTableTab">
+            <table class="inspector-table">
+              <thead><tr><th>CC_PT</th><th>Node</th><th>Major</th><th>Outside ft</th><th>End ft</th><th>Type</th><th>Status</th></tr></thead>
+              <tbody id="ccTableBody"></tbody>
+            </table>
+          </div>
+          <div id="missingLinkTablePanel" class="inspector-table-panel hidden" role="tabpanel" aria-labelledby="missingLinkTableTab">
+            <table class="inspector-table">
+              <thead><tr><th>A</th><th>B</th><th>Records</th><th>LANES</th><th>HERE_MISS</th><th>FCLASS</th></tr></thead>
+              <tbody id="missingLinkTableBody"></tbody>
+            </table>
+          </div>
+          <div id="tazStatusTablePanel" class="inspector-table-panel hidden" role="tabpanel" aria-labelledby="tazStatusTableTab">
+            <table class="inspector-table">
+              <thead><tr><th>TAZ</th><th>Status</th><th>CCs</th><th>QC Note</th></tr></thead>
+              <tbody id="tazStatusTableBody"></tbody>
+            </table>
+          </div>
+        </div>
         <label class="note-label">QC Note</label>
         <textarea id="qcNote" maxlength="250" placeholder="Optional note"></textarea>
         <div class="hint">
           Public GitHub Pages version uses non-HERE static data and saves edits in this browser.
-          Export your final files before using Reset Browser Data.
+          Manual edits may override CC count, 70-degree spacing, the 200-ft limit, and GSTDM crossings.
+          Red major nodes and nodes already used by another TAZ remain locked. Export your final files before using Reset Browser Data.
         </div>
       </aside>
     </main>
@@ -175,34 +238,37 @@
           </p>
           <p>
             The number of CCs is somewhat subjective and depends on the size and shape of the TAZ. Smaller TAZs
-            usually have 1 to 2 CCs, while larger TAZs may have 3. Every TAZ must keep 1 to 3 CCs. CCs cannot extend
-            more than 200 ft outside the TAZ or cross a GSTDM link before reaching the target node. A GSTDM target node
-            can be used by only one TAZ; if another TAZ already uses it, choose a nearby different node. CCs within one TAZ
-            must be at least 70 degrees apart; this angle is never reduced, so delete a lower-priority CC if needed. CCs should avoid connecting
+            usually have 1 to 2 CCs, while larger TAZs may have 3. The automatic generator targets 1 to 3 CCs, at least
+            70 degrees apart, no more than 200 ft outside the TAZ, and no GSTDM crossing before the target node. During
+            manual review, these automatic rules may be overridden, including the CC count. A target node can still be
+            used by only one TAZ; if another TAZ already uses it, choose a nearby different node. Red major nodes remain locked. CCs should avoid connecting
             to internal TAZ nodes: use a node within 200 ft of the TAZ boundary whenever one satisfies all hard rules.
             A farther internal node is labeled INTERIOR FALLBACK. CCs should also avoid connecting directly to freeways,
-            major arterials, or intersections. These rules have already been built into the
-            program, so the main task is to human-review the generated results and make corrections where needed.
-            The OpenStreetMap basemap loads only the tiles needed for the visible map view and can be turned on to help review whether the connector location makes sense.
+            major arterials, or intersections. The generation rules provide the default result, while the reviewer may make
+            a documented manual exception except for major-node use or cross-TAZ node sharing.
+            MapLibre loads the OpenStreetMap basemap and local MVT vector tiles only for the visible map view.
           </p>
           <h3>Basic workflow</h3>
           <ol>
             <li>Open the web tool.</li>
-            <li>All TAZs, CCs, GSTDM nodes, and GSTDM links load once. The initial map zooms to the first TAZ; use Zoom All at any time to see the statewide view.</li>
-            <li>Select a TAZ from the queue, click any TAZ polygon or number on the map, or use the TAZ search box to jump to a specific TAZ.</li>
+            <li>MapLibre renders TAZ boundaries, labels, nodes, and GSTDM links from local MVT vector tiles in WebGL. Low zooms use simplified links and clustered nodes; zoom 12 and above use the full network through overzoomed detail tiles.</li>
+            <li>Select a TAZ from the list, double-click any TAZ polygon or number on the map, or use the TAZ search box to jump to a specific TAZ.</li>
             <li>Selecting a TAZ zooms to its boundary and highlights it; the other loaded layers remain available and reappear as you pan or zoom.</li>
             <li>Review the existing centroid connectors on the map.</li>
             <li>To QC a coworker's export, click Load CC File. DBF and CSV can be selected directly; select SHP together with its same-name DBF. The uploaded CCs replace the default CCs in this browser until you click Use Default CC.</li>
             <li>Click a connector to inspect its current connected node.</li>
             <li>To modify a connector, select the connector and click a valid target node on the map. The edit is saved immediately.</li>
             <li>To add a new connector, click Add CC, then choose the target node. The new connector is generated and saved directly.</li>
+            <li>To add a missing roadway link, click Add Missing Links, choose the first node, then choose the second node. Any visible detailed node can be used, and candidate nodes highlight on hover.</li>
+            <li>HERE_MISS is a separate map layer. Use Export HERE_MISS to download DBF or CSV; each drawn link produces A-to-B and B-to-A records with LANES=1, HERE_MISS=1, and FCLASS=7.</li>
+            <li>Use the CC, Missing Links, and TAZ Status tabs in the right panel to review records. Selecting a CC or HERE_MISS link on the map highlights its table row. Right-click a HERE_MISS line or table row to delete it. Drag the left edge of the right panel to resize the tables.</li>
             <li>Use Undo Edit or Redo Edit if needed.</li>
-            <li>Every TAZ starts as FLAG. A TAZ changes to EDITED when uploaded CC data differs from the default CCs or when a user changes a connector, QC note, or other saved review data.</li>
-            <li>Mark the TAZ as REVIEWED when the connectors look correct. Right-click a TAZ in the queue or on the map to set FLAG, EDITED, or REVIEWED directly.</li>
+            <li>Every TAZ with at least one CC starts as WAITING FOR QC. A TAZ with no CC is automatically FLAG. A TAZ changes to EDITED when uploaded CC data differs from the default CCs or when a user changes a connector, QC note, or other saved review data.</li>
+            <li>Mark the TAZ as REVIEWED when the connectors look correct. Right-click a TAZ in the list or on the map to set WAITING FOR QC, FLAG, EDITED, or REVIEWED directly. A zero-CC TAZ always remains FLAG.</li>
             <li>Continue through the remaining TAZs.</li>
             <li>When review is complete, use Final CC Export, choose DBF or CSV, and choose whether to include the matching QCNOTES companion file with A, B, and QC_NOTES fields.</li>
             <li>Use Export TAZ QC Status to download all TAZ statuses and notes as CSV or as a polygon Shapefile ZIP.</li>
-            <li>To discard all browser-saved edits and restore the original published dataset, click Reset Browser Data and confirm. This also removes uploaded CC data, QC notes, reviewed status, and custom layer order.</li>
+            <li>To discard all browser-saved edits and restore the original published dataset, click Reset Browser Data and confirm. This also removes HERE_MISS links, uploaded CC data, QC notes, reviewed status, and custom layer order.</li>
           </ol>
           <p>
             Please focus on whether each centroid connector is connected to a reasonable valid node. Major nodes
@@ -220,12 +286,13 @@
 
     <footer class="statusbar">
       <span id="statusText">Initializing...</span>
-      <span>All TAZs, CCs, nodes, and links loaded once | browser-local edits</span>
+      <span>MapLibre WebGL | local MVT vector tiles | browser-local edits</span>
     </footer>
 
+    <script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
     <script src="cc-file-loader.js?v=20260721-all-data"></script>
-    <script src="app.js?v=20260722-mobile-pinch"></script>
+    <script src="app.js?v=20260722-here-miss-table-zoom"></script>
     <script>
       (() => {
         const showInstructions = () => document.getElementById("instructionsPanel")?.classList.remove("hidden");

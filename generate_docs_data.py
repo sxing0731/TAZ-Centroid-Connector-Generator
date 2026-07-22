@@ -4,15 +4,51 @@ import json
 import math
 import shutil
 import argparse
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
+import mapbox_vector_tile
 import pandas as pd
+from pyproj import Transformer
+from shapely import line_merge
+from shapely.geometry import LineString, MultiLineString, Point, box, shape
+from shapely.ops import transform as shapely_transform
 
 
 CONTEXT_FEET = 1.5 * 5280
 ROUND_DIGITS = 1
+VIEWPORT_TILE_SIZE_FEET = 80000
+MEDIUM_CLUSTER_SIZE_FEET = 20000
+COARSE_CLUSTER_SIZE_FEET = 80000
+MVT_MIN_ZOOM = 6
+MVT_DETAIL_ZOOM = 12
+MVT_EXTENT = 4096
+MVT_BUFFER = 96
+OVERVIEW_SIMPLIFY_FEET_BY_ZOOM = {
+    6: 3000,
+    7: 1800,
+    8: 1000,
+    9: 500,
+    10: 200,
+    11: 60,
+}
+OVERVIEW_MIN_LENGTH_FEET_BY_ZOOM = {
+    6: 2000,
+    7: 1200,
+    8: 800,
+    9: 400,
+    10: 200,
+    11: 0,
+}
+WEB_MERCATOR_HALF_WORLD = 20037508.342789244
+SOURCE_CRS = (
+    "+proj=lcc +lat_0=0 +lon_0=-83.5 +lat_1=31.4166666666667 "
+    "+lat_2=34.2833333333333 +x_0=0 +y_0=0 +datum=NAD83 +units=us-ft +no_defs +type=crs"
+)
+SOURCE_TO_MERCATOR = Transformer.from_crs(SOURCE_CRS, "EPSG:3857", always_xy=True)
+SOURCE_TO_WGS84 = Transformer.from_crs(SOURCE_CRS, "EPSG:4326", always_xy=True)
 
 
 def id_text(value: Any) -> str:
@@ -72,10 +108,421 @@ def sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     tmp_path = path.with_name(f"{path.name}.tmp")
     tmp_path.write_text(text, encoding="utf-8")
     tmp_path.replace(path)
+
+
+def tile_position(x: float, y: float, size: int = VIEWPORT_TILE_SIZE_FEET) -> tuple[int, int]:
+    return math.floor(x / size), math.floor(y / size)
+
+
+def tile_key(column: int, row: int) -> str:
+    return f"{column}_{row}"
+
+
+def tile_bounds(column: int, row: int, size: int = VIEWPORT_TILE_SIZE_FEET) -> list[int]:
+    return [column * size, row * size, (column + 1) * size, (row + 1) * size]
+
+
+def coordinate_bounds(coordinates: list[list[float]]) -> tuple[float, float, float, float]:
+    xs = [point[0] for point in coordinates]
+    ys = [point[1] for point in coordinates]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def cluster_nodes(nodes: list[dict[str, Any]], size: int) -> list[dict[str, Any]]:
+    groups: dict[tuple[int, int], list[float]] = {}
+    for node in nodes:
+        key = tile_position(float(node["x"]), float(node["y"]), size)
+        stats = groups.setdefault(key, [0.0, 0.0, 0.0, 0.0])
+        stats[0] += float(node["x"])
+        stats[1] += float(node["y"])
+        stats[2] += 1
+        stats[3] += 1 if node.get("eligible") else 0
+    return [
+        {
+            "x": round(stats[0] / stats[2], ROUND_DIGITS),
+            "y": round(stats[1] / stats[2], ROUND_DIGITS),
+            "count": int(stats[2]),
+            "eligible": int(stats[3]),
+        }
+        for stats in groups.values()
+    ]
+
+
+def build_gstdm_overview(lines: list[list[list[float]]], zoom: int) -> list[list[list[float]]]:
+    """Generalize the network without snapping coordinates to a square grid."""
+    tolerance = OVERVIEW_SIMPLIFY_FEET_BY_ZOOM[zoom]
+    minimum_length = OVERVIEW_MIN_LENGTH_FEET_BY_ZOOM[zoom]
+    simplified_lines: list[list[list[float]]] = []
+    for coordinates in lines:
+        if len(coordinates) < 2:
+            continue
+        line = LineString(coordinates)
+        if line.length < minimum_length:
+            continue
+        generalized = line.simplify(tolerance, preserve_topology=True)
+        if generalized.is_empty or generalized.geom_type != "LineString" or len(generalized.coords) < 2:
+            continue
+        simplified_lines.append(rounded(list(generalized.coords)))
+    return simplified_lines
+
+
+def to_web_mercator(geometry: Any) -> Any:
+    return shapely_transform(SOURCE_TO_MERCATOR.transform, geometry)
+
+
+def web_tile_bounds(zoom: int, column: int, row: int) -> tuple[float, float, float, float]:
+    span = WEB_MERCATOR_HALF_WORLD * 2 / (2**zoom)
+    min_x = -WEB_MERCATOR_HALF_WORLD + column * span
+    max_y = WEB_MERCATOR_HALF_WORLD - row * span
+    return min_x, max_y - span, min_x + span, max_y
+
+
+def geometry_tile_range(geometry: Any, zoom: int) -> tuple[int, int, int, int]:
+    min_x, min_y, max_x, max_y = geometry.bounds
+    count = 2**zoom
+    span = WEB_MERCATOR_HALF_WORLD * 2 / count
+    min_column = math.floor((min_x + WEB_MERCATOR_HALF_WORLD) / span)
+    max_column = math.floor((max_x + WEB_MERCATOR_HALF_WORLD) / span)
+    min_row = math.floor((WEB_MERCATOR_HALF_WORLD - max_y) / span)
+    max_row = math.floor((WEB_MERCATOR_HALF_WORLD - min_y) / span)
+    return (
+        max(0, min(count - 1, min_column)),
+        max(0, min(count - 1, min_row)),
+        max(0, min(count - 1, max_column)),
+        max(0, min(count - 1, max_row)),
+    )
+
+
+def add_mvt_feature(
+    tile_layers: dict[tuple[int, int], dict[str, list[dict[str, Any]]]],
+    zoom: int,
+    layer: str,
+    geometry: Any,
+    properties: dict[str, Any],
+) -> None:
+    if geometry is None or geometry.is_empty:
+        return
+    min_column, min_row, max_column, max_row = geometry_tile_range(geometry, zoom)
+    feature = {
+        "geometry": geometry,
+        "properties": {key: value for key, value in properties.items() if value is not None},
+    }
+    for column in range(min_column, max_column + 1):
+        for row in range(min_row, max_row + 1):
+            tile_layers.setdefault((column, row), {}).setdefault(layer, []).append(feature)
+
+
+def encode_mvt_tile(
+    layers: dict[str, list[dict[str, Any]]],
+    bounds: tuple[float, float, float, float],
+) -> bytes:
+    min_x, min_y, max_x, max_y = bounds
+    span = max_x - min_x
+    clip_buffer = span * MVT_BUFFER / MVT_EXTENT
+    clip_box = box(min_x - clip_buffer, min_y - clip_buffer, max_x + clip_buffer, max_y + clip_buffer)
+    tolerance = span / MVT_EXTENT * 0.35
+    encoded_layers: list[dict[str, Any]] = []
+    for name, features in layers.items():
+        clipped: list[dict[str, Any]] = []
+        for feature in features:
+            geometry = feature["geometry"]
+            if not geometry.intersects(clip_box):
+                continue
+            if geometry.geom_type not in {"Point", "MultiPoint"}:
+                geometry = geometry.intersection(clip_box)
+                if geometry.is_empty:
+                    continue
+                geometry = geometry.simplify(tolerance, preserve_topology=True)
+            clipped.append({"geometry": geometry, "properties": feature["properties"]})
+        if clipped:
+            encoded_layers.append({"name": name, "features": clipped})
+    if not encoded_layers:
+        return b""
+    return mapbox_vector_tile.encode(
+        encoded_layers,
+        default_options={
+            "quantize_bounds": bounds,
+            "extents": MVT_EXTENT,
+            "y_coord_down": False,
+        },
+    )
+
+
+def write_mvt_zoom(
+    mvt_root: Path,
+    zoom: int,
+    tile_layers: dict[tuple[int, int], dict[str, list[dict[str, Any]]]],
+) -> dict[str, int]:
+    tile_count = 0
+    total_bytes = 0
+    for (column, row), layers in sorted(tile_layers.items()):
+        encoded = encode_mvt_tile(layers, web_tile_bounds(zoom, column, row))
+        if not encoded:
+            continue
+        path = mvt_root / str(zoom) / str(column) / f"{row}.pbf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(encoded)
+        tile_count += 1
+        total_bytes += len(encoded)
+    return {"tiles": tile_count, "bytes": total_bytes}
+
+
+def write_maplibre_vector_tiles(
+    docs_data: Path,
+    payload: dict[str, Any],
+    overview: dict[str, Any],
+) -> dict[str, Any]:
+    mvt_root = (docs_data / "mvt").resolve()
+    if mvt_root.exists():
+        if mvt_root.parent != docs_data.resolve():
+            raise SystemExit(f"Refusing to replace unexpected MVT directory: {mvt_root}")
+        shutil.rmtree(mvt_root)
+    mvt_root.mkdir(parents=True)
+
+    taz_features = [
+        (
+            to_web_mercator(shape(item["geom"])),
+            {"taz_id": str(item["id"]), "flag": str(item.get("flag", "N"))},
+        )
+        for item in payload.get("tazs", [])
+        if item.get("geom")
+    ]
+    centroid_features = [
+        (
+            to_web_mercator(Point(float(item["x"]), float(item["y"]))),
+            {"taz_id": str(item["id"])},
+        )
+        for item in payload.get("centroids", [])
+    ]
+    connector_features = [
+        (
+            to_web_mercator(shape(item["geom"])),
+            {
+                "taz_id": str(item.get("tazId", "")),
+                "cc_pt": str(item.get("ccPt", "")),
+                "node_id": str(item.get("nodeId", "")),
+            },
+        )
+        for item in payload.get("connectors", [])
+        if item.get("geom")
+    ]
+    network_lines = ((payload.get("gstdmFeature") or {}).get("geometry") or {}).get("coordinates") or []
+    coarse_clusters = [
+        (
+            to_web_mercator(Point(float(item["x"]), float(item["y"]))),
+            {"count": int(item["count"]), "eligible": int(item.get("eligible", 0))},
+        )
+        for item in overview.get("coarseClusters", [])
+    ]
+    medium_clusters = [
+        (
+            to_web_mercator(Point(float(item["x"]), float(item["y"]))),
+            {"count": int(item["count"]), "eligible": int(item.get("eligible", 0))},
+        )
+        for item in overview.get("mediumClusters", [])
+    ]
+
+    totals = {"tiles": 0, "bytes": 0}
+    for zoom in range(MVT_MIN_ZOOM, MVT_DETAIL_ZOOM):
+        tile_layers: dict[tuple[int, int], dict[str, list[dict[str, Any]]]] = {}
+        overview_lines = build_gstdm_overview(network_lines, zoom)
+        for geometry, properties in taz_features:
+            add_mvt_feature(tile_layers, zoom, "taz", geometry, properties)
+        for geometry, properties in centroid_features:
+            add_mvt_feature(tile_layers, zoom, "centroids", geometry, properties)
+        for geometry, properties in connector_features:
+            add_mvt_feature(tile_layers, zoom, "connectors", geometry, properties)
+        for index, coordinates in enumerate(overview_lines):
+            add_mvt_feature(
+                tile_layers,
+                zoom,
+                "gstdm",
+                to_web_mercator(LineString(coordinates)),
+                {"segment": index},
+            )
+        clusters = coarse_clusters if zoom <= 9 else medium_clusters
+        for geometry, properties in clusters:
+            add_mvt_feature(tile_layers, zoom, "node_clusters", geometry, properties)
+        stats = write_mvt_zoom(mvt_root, zoom, tile_layers)
+        totals["tiles"] += stats["tiles"]
+        totals["bytes"] += stats["bytes"]
+        print(
+            f"MVT z{zoom}: {stats['tiles']} tile(s), {len(overview_lines)} generalized GSTDM lines, "
+            f"{stats['bytes'] / 1024:.1f} KiB"
+        )
+
+    detail_layers: dict[tuple[int, int], dict[str, list[dict[str, Any]]]] = {}
+    for geometry, properties in taz_features:
+        add_mvt_feature(detail_layers, MVT_DETAIL_ZOOM, "taz", geometry, properties)
+    for geometry, properties in centroid_features:
+        add_mvt_feature(detail_layers, MVT_DETAIL_ZOOM, "centroids", geometry, properties)
+    for geometry, properties in connector_features:
+        add_mvt_feature(detail_layers, MVT_DETAIL_ZOOM, "connectors", geometry, properties)
+    for node in payload.get("nodes", []):
+        geometry = to_web_mercator(Point(float(node["x"]), float(node["y"])))
+        add_mvt_feature(
+            detail_layers,
+            MVT_DETAIL_ZOOM,
+            "nodes",
+            geometry,
+            {
+                "node_id": str(node.get("id", "")),
+                "x": float(node["x"]),
+                "y": float(node["y"]),
+                "major_level": number(node.get("majorLevel")),
+                "eligible": bool(node.get("eligible")),
+            },
+        )
+    for line_id, coordinates in enumerate(network_lines):
+        if len(coordinates) < 2:
+            continue
+        add_mvt_feature(
+            detail_layers,
+            MVT_DETAIL_ZOOM,
+            "gstdm",
+            to_web_mercator(LineString(coordinates)),
+            {"segment": line_id},
+        )
+    detail_stats = write_mvt_zoom(mvt_root, MVT_DETAIL_ZOOM, detail_layers)
+    totals["tiles"] += detail_stats["tiles"]
+    totals["bytes"] += detail_stats["bytes"]
+    print(f"MVT z{MVT_DETAIL_ZOOM}: {detail_stats['tiles']} tile(s), {detail_stats['bytes'] / 1024 / 1024:.2f} MiB")
+
+    source_bounds = [math.inf, math.inf, -math.inf, -math.inf]
+    for geometry, _ in taz_features:
+        min_x, min_y, max_x, max_y = geometry.bounds
+        source_bounds[0] = min(source_bounds[0], min_x)
+        source_bounds[1] = min(source_bounds[1], min_y)
+        source_bounds[2] = max(source_bounds[2], max_x)
+        source_bounds[3] = max(source_bounds[3], max_y)
+    mercator_to_wgs84 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+    west, south = mercator_to_wgs84.transform(source_bounds[0], source_bounds[1])
+    east, north = mercator_to_wgs84.transform(source_bounds[2], source_bounds[3])
+    manifest = {
+        "schemaVersion": 1,
+        "generalizationVersion": 2,
+        "format": "mvt",
+        "tiles": "data/mvt/{z}/{x}/{y}.pbf",
+        "minzoom": MVT_MIN_ZOOM,
+        "maxzoom": MVT_DETAIL_ZOOM,
+        "bounds": [west, south, east, north],
+        "tileCount": totals["tiles"],
+        "bytes": totals["bytes"],
+        "layers": ["taz", "centroids", "connectors", "gstdm", "node_clusters", "nodes"],
+        "generalization": {
+            "method": "topology-preserving-simplify",
+            "simplifyFeetByZoom": OVERVIEW_SIMPLIFY_FEET_BY_ZOOM,
+            "minimumLengthFeetByZoom": OVERVIEW_MIN_LENGTH_FEET_BY_ZOOM,
+        },
+    }
+    write_json(mvt_root / "manifest.json", manifest)
+    return manifest
+
+
+def write_viewport_bundle(docs_data: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    tiles_root = (docs_data / "tiles").resolve()
+    if tiles_root.exists():
+        if tiles_root.parent != docs_data.resolve():
+            raise SystemExit(f"Refusing to replace unexpected tile directory: {tiles_root}")
+        shutil.rmtree(tiles_root)
+    (tiles_root / "nodes").mkdir(parents=True)
+    (tiles_root / "links").mkdir(parents=True)
+
+    nodes = payload.get("nodes", [])
+    gstdm_feature = payload.get("gstdmFeature") or {}
+    lines = (gstdm_feature.get("geometry") or {}).get("coordinates") or []
+    node_tiles: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    node_index: dict[str, str] = {}
+    tile_metadata: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        column, row = tile_position(float(node["x"]), float(node["y"]))
+        key = tile_key(column, row)
+        node_tiles[key].append(node)
+        node_index[str(node["id"])] = key
+        tile_metadata.setdefault(key, {"bbox": tile_bounds(column, row), "nodes": 0, "lines": 0})["nodes"] += 1
+
+    line_tiles: dict[str, list[list[Any]]] = defaultdict(list)
+    for line_id, coordinates in enumerate(lines):
+        if len(coordinates) < 2:
+            continue
+        min_x, min_y, max_x, max_y = coordinate_bounds(coordinates)
+        min_column, min_row = tile_position(min_x, min_y)
+        max_column, max_row = tile_position(max_x, max_y)
+        for column in range(min_column, max_column + 1):
+            for row in range(min_row, max_row + 1):
+                key = tile_key(column, row)
+                line_tiles[key].append([line_id, coordinates])
+                tile_metadata.setdefault(key, {"bbox": tile_bounds(column, row), "nodes": 0, "lines": 0})["lines"] += 1
+
+    for key, items in node_tiles.items():
+        write_json(tiles_root / "nodes" / f"{key}.json", {"nodes": items})
+    for key, items in line_tiles.items():
+        write_json(tiles_root / "links" / f"{key}.json", {"lines": items})
+
+    overview = {
+        "coarseClusters": cluster_nodes(nodes, COARSE_CLUSTER_SIZE_FEET),
+        "mediumClusters": cluster_nodes(nodes, MEDIUM_CLUSTER_SIZE_FEET),
+        "gstdmLines": build_gstdm_overview(lines, 8),
+    }
+    write_json(tiles_root / "overview.json", overview)
+    write_json(tiles_root / "node-index.json", node_index)
+    vector_tiles = write_maplibre_vector_tiles(docs_data, payload, overview)
+    manifest = {
+        "schemaVersion": 1,
+        "crs": "NAD83 / Georgia Statewide Lambert (US ft)",
+        "tileSizeFeet": VIEWPORT_TILE_SIZE_FEET,
+        "paddingFeet": CONTEXT_FEET,
+        "detailScale": 0.006,
+        "overviewScale": 0.0012,
+        "tiles": tile_metadata,
+        "overview": "data/tiles/overview.json",
+        "nodeIndex": "data/tiles/node-index.json",
+    }
+    write_json(tiles_root / "manifest.json", manifest)
+
+    connector_ids = {str(connector.get("nodeId", "")) for connector in payload.get("connectors", [])}
+    connector_nodes = [node for node in nodes if str(node.get("id", "")) in connector_ids]
+    core = {
+        key: payload[key]
+        for key in (
+            "generatedFrom",
+            "nodeSource",
+            "count",
+            "contextFeet",
+            "tazOrder",
+            "tazs",
+            "centroids",
+            "connectors",
+        )
+    }
+    core.update({
+        "schemaVersion": 4,
+        "connectorNodes": connector_nodes,
+        "counts": {
+            "tazs": len(payload.get("tazs", [])),
+            "connectors": len(payload.get("connectors", [])),
+            "nodes": len(nodes),
+            "gstdmSourceFeatures": int((gstdm_feature.get("properties") or {}).get("sourceFeatureCount", 0)),
+            "gstdmLines": len(lines),
+        },
+        "tileManifest": "data/tiles/manifest.json",
+        "vectorTiles": vector_tiles,
+    })
+    write_json(docs_data / "core.json", core)
+    return {
+        "tiles": len(tile_metadata),
+        "connectorNodes": len(connector_nodes),
+        "overviewLines": len(overview["gstdmLines"]),
+        "coarseClusters": len(overview["coarseClusters"]),
+        "mediumClusters": len(overview["mediumClusters"]),
+        "mvtTiles": vector_tiles["tileCount"],
+        "mvtBytes": vector_tiles["bytes"],
+    }
 
 
 def connector_item(row: Any, taz_id: str) -> dict[str, Any]:
@@ -115,6 +562,52 @@ def link_item(row: Any) -> dict[str, Any]:
         "funcClass": str(row.get("FUNC_CLASS") or ""),
         "geom": geom_json(row.geometry, 10),
     }
+
+
+def merged_gstdm_feature_from_lines(lines: list[list[list[float]]], source_count: int) -> dict[str, Any]:
+    """Store the display network as one feature and join degree-two line chains."""
+    merged = line_merge(MultiLineString(lines)) if lines else MultiLineString([])
+    if merged.geom_type == "LineString":
+        merged_lines = [rounded(list(merged.coords))]
+    else:
+        merged_lines = [rounded(list(line.coords)) for line in merged.geoms]
+    return {
+        "type": "Feature",
+        "properties": {
+            "sourceFeatureCount": source_count,
+            "lineCount": len(merged_lines),
+        },
+        "geometry": {
+            "type": "MultiLineString",
+            "coordinates": merged_lines,
+        },
+    }
+
+
+def merged_gstdm_feature(links: list[dict[str, Any]]) -> dict[str, Any]:
+    lines: list[list[list[float]]] = []
+    for link in links:
+        geometry = link.get("geom") or {}
+        if geometry.get("type") == "LineString":
+            coordinates = geometry.get("coordinates") or []
+            if len(coordinates) >= 2:
+                lines.append(coordinates)
+        elif geometry.get("type") == "MultiLineString":
+            lines.extend(line for line in (geometry.get("coordinates") or []) if len(line) >= 2)
+    return merged_gstdm_feature_from_lines(lines, len(links))
+
+
+def merge_payload_gstdm(payload: dict[str, Any]) -> None:
+    existing = payload.get("gstdmFeature")
+    if existing:
+        payload.pop("links", None)
+        geometry = existing.get("geometry") or {}
+        lines = geometry.get("coordinates") or []
+        source_count = int((existing.get("properties") or {}).get("sourceFeatureCount", len(lines)))
+        payload["gstdmFeature"] = merged_gstdm_feature_from_lines(lines, source_count)
+    else:
+        payload["gstdmFeature"] = merged_gstdm_feature(payload.pop("links", []))
+    payload["schemaVersion"] = 3
 
 
 def build_from_gpkg() -> dict[str, Any]:
@@ -191,8 +684,9 @@ def build_from_gpkg() -> dict[str, Any]:
 
     taz_order.sort(key=sort_key)
     taz_items.sort(key=lambda item: sort_key({"id": item["id"], "flag": item["flag"], "issue": item["issue"]}))
+    link_items = [link_item(row) for _, row in review_links.iterrows()]
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "generatedFrom": run_folder.name,
         "nodeSource": run_folder.name,
         "count": len(taz_order),
@@ -202,7 +696,7 @@ def build_from_gpkg() -> dict[str, Any]:
         "centroids": centroid_items,
         "connectors": connector_items,
         "nodes": [node_item(row) for _, row in nodes.iterrows()],
-        "links": [link_item(row) for _, row in review_links.iterrows()],
+        "gstdmFeature": merged_gstdm_feature(link_items),
     }
 
 
@@ -247,7 +741,7 @@ def build_from_existing_static(docs_data: Path) -> dict[str, Any]:
             print(f"Migrated {position}/{len(index['tazOrder'])} TAZ payloads")
     order = [{key: value for key, value in item.items() if key != "file"} for item in index["tazOrder"]]
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "generatedFrom": index.get("generatedFrom", "existing-static-data"),
         "count": len(order),
         "contextFeet": CONTEXT_FEET,
@@ -256,7 +750,7 @@ def build_from_existing_static(docs_data: Path) -> dict[str, Any]:
         "centroids": centroids,
         "connectors": connectors,
         "nodes": list(nodes_by_id.values()),
-        "links": list(links_by_id.values()),
+        "gstdmFeature": merged_gstdm_feature(list(links_by_id.values())),
     }
 
 
@@ -318,7 +812,7 @@ def augment_all_nodes_from_latest_gpkg(payload: dict[str, Any]) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build one deduplicated static QAQC data file.")
+    parser = argparse.ArgumentParser(description="Build viewport-loaded static QAQC core data and vector tiles.")
     parser.add_argument(
         "--from-existing-static",
         action="store_true",
@@ -327,7 +821,7 @@ def main() -> None:
     parser.add_argument(
         "--from-existing-all",
         action="store_true",
-        help="Revalidate and repair the existing docs/data/all.json without changing its run contents.",
+        help="Convert the existing docs/data/all.json into viewport vector tiles without changing its run contents.",
     )
     parser.add_argument(
         "--keep-per-taz",
@@ -349,11 +843,23 @@ def main() -> None:
     else:
         payload = build_from_gpkg()
         augmented_nodes = 0
+    merge_payload_gstdm(payload)
     added_nodes = ensure_connector_nodes(payload)
-    write_json(all_path, payload)
-    verified = json.loads(all_path.read_text(encoding="utf-8"))
-    if verified.get("schemaVersion") != 2 or len(verified.get("tazs", [])) != len(verified.get("tazOrder", [])):
-        raise SystemExit("Generated all.json failed validation; legacy files were kept.")
+    bundle_stats = write_viewport_bundle(docs_data, payload)
+    core_path = docs_data / "core.json"
+    manifest_path = docs_data / "tiles" / "manifest.json"
+    verified_core = json.loads(core_path.read_text(encoding="utf-8"))
+    verified_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (
+        verified_core.get("schemaVersion") != 4
+        or len(verified_core.get("tazs", [])) != len(verified_core.get("tazOrder", []))
+        or verified_core.get("counts", {}).get("nodes") != len(payload.get("nodes", []))
+        or verified_manifest.get("schemaVersion") != 1
+        or not verified_manifest.get("tiles")
+    ):
+        raise SystemExit("Generated viewport data failed validation; legacy files were kept.")
+    if all_path.exists():
+        all_path.unlink()
     if not args.keep_per_taz:
         taz_dir = (docs_data / "taz").resolve()
         if taz_dir.exists() and taz_dir.parent == docs_data.resolve():
@@ -361,10 +867,15 @@ def main() -> None:
         legacy_index = (docs_data / "index.json").resolve()
         if legacy_index.exists() and legacy_index.parent == docs_data.resolve():
             legacy_index.unlink()
+    gstdm_properties = payload["gstdmFeature"]["properties"]
     print(
-        f"Wrote {all_path}: {len(payload['tazs'])} TAZs, {len(payload['connectors'])} CCs, "
-        f"{len(payload['nodes'])} nodes, {len(payload['links'])} links from {payload['generatedFrom']} "
-        f"({added_nodes} connector endpoint nodes added, {augmented_nodes} full-layer nodes added)"
+        f"Wrote {core_path} and {bundle_stats['tiles']} viewport tiles: "
+        f"{len(payload['tazs'])} TAZs, {len(payload['connectors'])} CCs, {len(payload['nodes'])} nodes, "
+        f"1 merged GSTDM feature "
+        f"({gstdm_properties['sourceFeatureCount']} source links) from {payload['generatedFrom']} "
+        f"({bundle_stats['overviewLines']} overview lines, {bundle_stats['coarseClusters']} coarse clusters, "
+        f"{bundle_stats['mediumClusters']} medium clusters; {added_nodes} connector endpoint nodes added, "
+        f"{augmented_nodes} full-layer nodes added)"
     )
 
 

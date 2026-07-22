@@ -143,19 +143,26 @@ Generate the browser QAQC dataset with:
 .\.venv\Scripts\python.exe generate_docs_data.py
 ```
 
-The generator writes one deduplicated `docs/data/all.json` containing all TAZ
-polygons, centroids, connectors, GSTDM nodes, and GSTDM links needed by the
-static page. The page loads this file once, builds browser-side spatial indexes,
-and filters the already-loaded data when a TAZ is selected. Clicking a TAZ in
-the left queue zooms directly to that TAZ; no per-TAZ JSON request is made.
+The generator writes `docs/data/core.json` for QA/QC state and standard Mapbox
+Vector Tiles under `docs/data/mvt/{z}/{x}/{y}.pbf`. MapLibre GL renders those MVT
+tiles in WebGL and automatically requests only the current viewport. Zooms 6-11
+use zoom-dependent, topology-preserving GSTDM simplification and clustered nodes;
+coordinates are not snapped to a display grid. Zoom 12 contains full node and
+link detail and is overzoomed for closer views. Nodes are hidden below zoom 10,
+shown as small count-labeled clusters from zoom 10 to 12, and shown at their
+actual locations from zoom 12 onward. Clicking a TAZ in the left list
+zooms directly to that TAZ without a per-TAZ JSON request.
 The browser Final CC Export supports DBF or CSV. The optional QCNOTES companion
 contains matching `A`, `B`, and `QC_NOTES` fields for the directed connector
 records; disabling the toggle exports only the main `A/B/FCLASS` file.
-The Road basemap uses standard OpenStreetMap raster tiles requested only for the
-current viewport. Tile-completion redraws are batched and the in-memory tile
-cache is bounded to keep pan and zoom interactions responsive.
-TAZ review status uses three values: `FLAG` by default, `EDITED` when uploaded
-CCs differ or browser-saved work changes the TAZ, and `REVIEWED` after approval.
+MapLibre also manages the OpenStreetMap raster basemap and optional Esri satellite
+imagery. The custom Canvas is limited to temporary endpoint-edit previews.
+Connector labels use the readable `TAZ <integer> - <connector>` format and stay
+above selection highlighting. The legend slider controls and browser-saves the
+visibility of non-current TAZ boundaries, connectors, labels, and centroids.
+TAZ review status uses four values: `WAITING FOR QC` by default, `FLAG` when a
+TAZ has no CC, `EDITED` when uploaded CCs differ or browser-saved work changes
+the TAZ, and `REVIEWED` after approval.
 Right-click a TAZ to set any status manually. Export TAZ QC Status writes
 `TAZ_ID`, `QC_STATUS`, and `QC_NOTES` as CSV or a polygon Shapefile ZIP.
 
