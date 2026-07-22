@@ -33,7 +33,9 @@ centroid connectors for TAZ polygons without ArcGIS Pro or ArcPy.
    `MAJOR_LEVEL <= 2`; only non-major levels 3/4/5 can be used as snap nodes.
    A connector may have at most 200 ft outside its TAZ and cannot cross a GSTDM
    LINK before reaching the target-node endpoint. These limits are never relaxed.
-   Boundary-near nodes within 200 ft of the TAZ edge are always searched first;
+   Boundary-near nodes within 200 ft of the TAZ edge are always searched first,
+   using 0-25, 25-50, 50-100, and 100-200 ft proximity bands for both endpoint
+   boundary distance and outside connector length;
    an internal node is used only when no boundary-near node passes every rule.
 10. A GSTDM target node may be used by only one TAZ. When TAZs compete for the
     same node, the TAZ with more valid alternatives is redirected to its next

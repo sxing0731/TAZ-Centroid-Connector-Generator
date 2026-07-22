@@ -77,7 +77,10 @@ the desired layer is not the first layer.
    `MAJOR_LEVEL` 3/4/5 are eligible. The centroid-to-node connector may extend
    outside its TAZ by at most `boundary_endpoint_tolerance` feet (default 200)
    and may not intersect a GSTDM LINK before reaching its target-node endpoint.
-   The engine first searches for nodes within 200 ft of the TAZ boundary. If no
+   The engine first searches for nodes within 200 ft of the TAZ boundary and
+   ranks valid choices in 0-25, 25-50, 50-100, and 100-200 ft proximity bands,
+   considering both endpoint-to-boundary distance and connector length outside
+   the TAZ before angular fit. If no
    boundary-near node passes every hard rule, it may use an internal node and
    records `INTERIOR_FALLBACK = True`. It never relaxes the 200-ft outside or
    GSTDM-crossing limits.

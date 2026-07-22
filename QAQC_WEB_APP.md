@@ -49,6 +49,9 @@ Only nodes above the major-intersection cutoff are valid snap targets:
 - Prefer a node within 200 ft of the TAZ boundary. An endpoint farther inside
   the TAZ is allowed only as a clearly labeled fallback when no boundary-near
   node satisfies every hard rule.
+- Within the 200-ft limit, prefer nodes and connector routes in progressively
+  tighter 0-25, 25-50, 50-100, and 100-200 ft proximity bands.
+- On phones and tablets, use two fingers to pinch-zoom around their midpoint.
 
 Workflow:
 
