@@ -122,6 +122,23 @@ The source TAZ identifier is exported as `N`. QA fields include
 Empty layers are reported as warnings and are not written because some
 GeoPackage drivers cannot create an empty layer reliably.
 
+## Static QAQC Data
+
+Generate the browser QAQC dataset with:
+
+```powershell
+.\.venv\Scripts\python.exe generate_docs_data.py
+```
+
+The generator writes one deduplicated `docs/data/all.json` containing all TAZ
+polygons, centroids, connectors, GSTDM nodes, and GSTDM links needed by the
+static page. The page loads this file once, builds browser-side spatial indexes,
+and filters the already-loaded data when a TAZ is selected. Clicking a TAZ in
+the left queue zooms directly to that TAZ; no per-TAZ JSON request is made.
+The browser Final CC Export supports DBF or CSV. The optional QCNOTES companion
+contains matching `A`, `B`, and `QC_NOTES` fields for the directed connector
+records; disabling the toggle exports only the main `A/B/FCLASS` file.
+
 ## Module Layout
 
 - `main.py` — CLI entry point and optional Tkinter launch
