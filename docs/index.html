@@ -26,9 +26,11 @@
       <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
       <button id="jumpBtn">Go</button>
       <button id="finalExportBtn">Final CC Export</button>
+      <button id="tazStatusExportBtn">Export TAZ QC Status</button>
       <button id="loadCcBtn">Load CC File</button>
       <input id="ccFileInput" class="hidden" type="file" multiple accept=".dbf,.csv,.cvs,.shp,.json,.geojson" />
       <button id="resetCcBtn" class="hidden">Use Default CC</button>
+      <button id="resetBrowserDataBtn" class="reset-data" title="Delete this tool's browser-saved work and reload the initial data">Reset Browser Data</button>
       <button id="instructionsBtn">Instructions for Users</button>
       <div id="uploadBadge" class="badge upload-badge hidden"></div>
       <div id="dirtyBadge" class="badge hidden">Unsaved edit</div>
@@ -60,14 +62,34 @@
       </div>
     </dialog>
 
+    <dialog id="tazStatusExportDialog" class="export-dialog" aria-labelledby="tazStatusExportDialogTitle">
+      <div class="export-dialog-head">
+        <h2 id="tazStatusExportDialogTitle">Export TAZ QC Status</h2>
+        <button id="closeTazStatusExportDialogBtn" type="button" title="Close TAZ status export options">x</button>
+      </div>
+      <div class="export-dialog-body">
+        <fieldset>
+          <legend>Format</legend>
+          <div class="export-format-options">
+            <label><input type="radio" name="tazStatusExportFormat" value="csv" checked /> CSV</label>
+            <label><input type="radio" name="tazStatusExportFormat" value="shp" /> Shapefile (.zip)</label>
+          </div>
+        </fieldset>
+        <p class="export-hint">Exports TAZ_ID, QC_STATUS, and QC_NOTES. Shapefile includes the TAZ polygon geometry.</p>
+      </div>
+      <div class="export-dialog-actions">
+        <button id="cancelTazStatusExportBtn" type="button">Cancel</button>
+        <button id="downloadTazStatusExportBtn" type="button" class="primary">Download</button>
+      </div>
+    </dialog>
+
     <main class="layout">
       <aside class="sidebar">
         <div class="panel-head">
           <h2>TAZ Queue</h2>
           <select id="queueFilter">
             <option value="all">All</option>
-            <option value="flagged">Flagged</option>
-            <option value="unreviewed">Unreviewed</option>
+            <option value="flag">Flag</option>
             <option value="edited">Edited</option>
             <option value="reviewed">Reviewed</option>
           </select>
@@ -102,6 +124,12 @@
           <button id="ctxAddCcBtn">Add new CC</button>
           <button id="ctxDeleteCcBtn" class="danger">Delete this CC</button>
         </div>
+        <div id="tazStatusMenu" class="context-menu status-menu hidden">
+          <div id="tazStatusMenuTitle" class="context-menu-title">TAZ status</div>
+          <button data-taz-status="FLAG"><span class="status-dot flag"></span>FLAG</button>
+          <button data-taz-status="EDITED"><span class="status-dot edited"></span>EDITED</button>
+          <button data-taz-status="REVIEWED"><span class="status-dot reviewed"></span>REVIEWED</button>
+        </div>
         <div id="toast" class="toast hidden"></div>
       </section>
 
@@ -123,7 +151,7 @@
         <textarea id="qcNote" maxlength="250" placeholder="Optional note"></textarea>
         <div class="hint">
           Public GitHub Pages version uses non-HERE static data and saves edits in this browser.
-          Export Cube DBF before clearing browser storage.
+          Export your final files before using Reset Browser Data.
         </div>
       </aside>
     </main>
@@ -161,9 +189,12 @@
             <li>To modify a connector, select the connector and click a valid target node on the map. The edit is saved immediately.</li>
             <li>To add a new connector, click Add CC, then choose the target node. The new connector is generated and saved directly.</li>
             <li>Use Undo Edit or Redo Edit if needed.</li>
-            <li>Mark the TAZ as reviewed when the connectors look correct.</li>
+            <li>Every TAZ starts as FLAG. A TAZ changes to EDITED when uploaded CC data differs from the default CCs or when a user changes a connector, QC note, or other saved review data.</li>
+            <li>Mark the TAZ as REVIEWED when the connectors look correct. Right-click a TAZ in the queue or on the map to set FLAG, EDITED, or REVIEWED directly.</li>
             <li>Continue through the remaining TAZs.</li>
             <li>When review is complete, use Final CC Export, choose DBF or CSV, and choose whether to include the matching QCNOTES companion file with A, B, and QC_NOTES fields.</li>
+            <li>Use Export TAZ QC Status to download all TAZ statuses and notes as CSV or as a polygon Shapefile ZIP.</li>
+            <li>To discard all browser-saved edits and restore the original published dataset, click Reset Browser Data and confirm. This also removes uploaded CC data, QC notes, reviewed status, and custom layer order.</li>
           </ol>
           <p>
             Please focus on whether each centroid connector is connected to a reasonable valid node. Major nodes
@@ -186,7 +217,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
     <script src="cc-file-loader.js?v=20260721-all-data"></script>
-    <script src="app.js?v=20260722-final-export-options"></script>
+    <script src="app.js?v=20260722-taz-qc-status"></script>
     <script>
       (() => {
         const showInstructions = () => document.getElementById("instructionsPanel")?.classList.remove("hidden");

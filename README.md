@@ -138,6 +138,10 @@ the left queue zooms directly to that TAZ; no per-TAZ JSON request is made.
 The browser Final CC Export supports DBF or CSV. The optional QCNOTES companion
 contains matching `A`, `B`, and `QC_NOTES` fields for the directed connector
 records; disabling the toggle exports only the main `A/B/FCLASS` file.
+TAZ review status uses three values: `FLAG` by default, `EDITED` when uploaded
+CCs differ or browser-saved work changes the TAZ, and `REVIEWED` after approval.
+Right-click a TAZ to set any status manually. Export TAZ QC Status writes
+`TAZ_ID`, `QC_STATUS`, and `QC_NOTES` as CSV or a polygon Shapefile ZIP.
 
 ## Module Layout
 

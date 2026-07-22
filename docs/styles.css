@@ -96,6 +96,16 @@ button.primary {
   border-color: #0057b8;
 }
 
+button.reset-data {
+  border-color: #c62828;
+  color: #9f1d1d;
+  background: #fff8f8;
+}
+
+button.reset-data:hover {
+  background: #fdeaea;
+}
+
 button.active {
   border-color: var(--orange);
   background: #fff3e0;
@@ -342,7 +352,7 @@ button:disabled {
   font-weight: 700;
 }
 
-.pill.flagged {
+.pill.flag {
   background: #ffe3df;
   color: #c81e1e;
 }
@@ -571,6 +581,32 @@ button:disabled {
 .context-menu button:hover {
   background: #eef5ff;
 }
+
+.context-menu.status-menu {
+  position: fixed;
+  z-index: 1200;
+}
+
+.context-menu-title {
+  padding: 7px 9px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.flag { background: #c81e1e; }
+.status-dot.edited { background: #d66a00; }
+.status-dot.reviewed { background: #1f7a46; }
 
 .context-menu button.danger {
   color: #b42318;

@@ -1,3 +1,21 @@
+const STORAGE_KEYS = Object.freeze({
+  edits: "tazQaqcEdits",
+  importedCc: "tazQaqcImportedCc",
+  layerOrder: "tazLayerOrder",
+});
+const TAZ_STATUSES = Object.freeze(["FLAG", "EDITED", "REVIEWED"]);
+
+function readStoredJson(key, fallback) {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved == null ? fallback : JSON.parse(saved);
+  } catch (error) {
+    console.warn(`Could not read browser-saved data for ${key}`, error);
+    localStorage.removeItem(key);
+    return fallback;
+  }
+}
+
 const state = {
   canvas: null,
   ctx: null,
@@ -42,7 +60,8 @@ const state = {
   layerDragPointerId: null,
   inspectorNoteKey: null,
   hoveredTazId: null,
-  edits: JSON.parse(localStorage.getItem("tazQaqcEdits") || "{}"),
+  statusMenuTazId: null,
+  edits: readStoredJson(STORAGE_KEYS.edits, {}),
 };
 
 const qs = (id) => document.getElementById(id);
@@ -106,8 +125,13 @@ function bindControls() {
   qs("closeExportDialogBtn").addEventListener("click", hideExportDialog);
   qs("cancelExportBtn").addEventListener("click", hideExportDialog);
   qs("downloadFinalExportBtn").addEventListener("click", exportFinalCc);
+  qs("tazStatusExportBtn").addEventListener("click", showTazStatusExportDialog);
+  qs("closeTazStatusExportDialogBtn").addEventListener("click", hideTazStatusExportDialog);
+  qs("cancelTazStatusExportBtn").addEventListener("click", hideTazStatusExportDialog);
+  qs("downloadTazStatusExportBtn").addEventListener("click", exportTazQcStatus);
   qs("loadCcBtn").addEventListener("click", () => qs("ccFileInput").click());
   qs("ccFileInput").addEventListener("change", importCcFiles);
+  qs("resetBrowserDataBtn").addEventListener("click", resetBrowserData);
   qs("qcNote").addEventListener("input", () => saveQcNoteDraft(false));
   qs("qcNote").addEventListener("change", () => saveQcNoteDraft(true));
   qs("resetCcBtn").addEventListener("click", resetImportedCc);
@@ -124,11 +148,16 @@ function bindControls() {
     hideContextMenu();
     deleteSelectedConnector();
   });
+  document.querySelectorAll("[data-taz-status]").forEach((button) => {
+    button.addEventListener("click", () => setTazStatus(state.statusMenuTazId, button.dataset.tazStatus));
+  });
   document.addEventListener("click", (event) => {
     if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
+    if (!qs("tazStatusMenu").contains(event.target)) hideTazStatusMenu();
   });
   document.addEventListener("pointerdown", (event) => {
     if (!qs("ccContextMenu").contains(event.target)) hideContextMenu();
+    if (!qs("tazStatusMenu").contains(event.target)) hideTazStatusMenu();
   });
   document.addEventListener("pointermove", (event) => {
     if (event.target !== state.canvas && state.hoveredTazId && !state.isPanning && !state.isDraggingEndpoint) {
@@ -138,6 +167,7 @@ function bindControls() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideContextMenu();
+      hideTazStatusMenu();
       hideInstructions();
     }
   });
@@ -158,7 +188,7 @@ function bindControls() {
 
 function restoreLayerOrder() {
   const container = qs("legendLayers");
-  const saved = JSON.parse(localStorage.getItem("tazLayerOrder") || "null");
+  const saved = readStoredJson(STORAGE_KEYS.layerOrder, null);
   const valid = new Set(state.layerOrder);
   if (Array.isArray(saved) && saved.length === valid.size && saved.every((id) => valid.has(id))) state.layerOrder = saved;
   for (const id of state.layerOrder) {
@@ -200,7 +230,7 @@ function bindLayerReordering() {
 
 function syncLayerOrder() {
   state.layerOrder = Array.from(qs("legendLayers").querySelectorAll(".legend-layer"), (row) => row.dataset.layerRow);
-  localStorage.setItem("tazLayerOrder", JSON.stringify(state.layerOrder));
+  localStorage.setItem(STORAGE_KEYS.layerOrder, JSON.stringify(state.layerOrder));
   draw();
 }
 
@@ -220,17 +250,28 @@ function hideExportDialog() {
   qs("exportDialog").close();
 }
 
+function showTazStatusExportDialog() {
+  qs("tazStatusExportDialog").showModal();
+}
+
+function hideTazStatusExportDialog() {
+  qs("tazStatusExportDialog").close();
+}
+
 function bindCanvas() {
   state.canvas.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     const pt = eventPoint(event);
-    const connector = findConnectorAt(pt) || state.selected;
-    if (!connector) {
+    const connector = findConnectorAt(pt);
+    if (connector) {
+      hideTazStatusMenu();
+      selectConnector(connector);
+      showContextMenu(event.clientX, event.clientY, connector);
+    } else {
       hideContextMenu();
-      return;
+      const taz = findTazAt(pt);
+      if (taz) showTazStatusMenu(event.clientX, event.clientY, taz.id);
     }
-    selectConnector(connector);
-    showContextMenu(event.clientX, event.clientY, connector);
   });
   state.canvas.addEventListener("wheel", (event) => {
     event.preventDefault();
@@ -242,6 +283,7 @@ function bindCanvas() {
   });
   state.canvas.addEventListener("pointerdown", (event) => {
     hideContextMenu();
+    hideTazStatusMenu();
     const pt = eventPoint(event);
     state.pointerStart = pt;
     state.pointerMoved = false;
@@ -369,30 +411,72 @@ function resizeCanvas() {
   state.ctx.setTransform(scale, 0, 0, scale, 0, 0);
 }
 
+function hasUserChanges(tazId) {
+  const edit = state.edits[String(tazId)] || {};
+  return Boolean(
+    Object.keys(edit.connectors || {}).length
+    || edit.added?.length
+    || edit.deleted?.length
+    || Object.prototype.hasOwnProperty.call(edit, "note")
+  );
+}
+
+function importedCcDiffers(tazId) {
+  if (!state.importedCc) return false;
+  const clean = (value) => CcFileLoader.cleanId(value);
+  const baseline = (state.connectorsByTaz.get(String(tazId)) || []).map((row) => clean(row.nodeId)).sort();
+  const imported = (state.importedCc.get(String(tazId)) || []).map((row) => clean(row.nodeId)).sort();
+  return baseline.length !== imported.length || baseline.some((nodeId, index) => nodeId !== imported[index]);
+}
+
+function getTazStatus(tazId) {
+  const edit = state.edits[String(tazId)] || {};
+  const explicit = String(edit.qcStatus || "").toUpperCase();
+  if (TAZ_STATUSES.includes(explicit)) return explicit;
+  if (edit.reviewed) return "REVIEWED";
+  if (hasUserChanges(tazId) || importedCcDiffers(tazId)) return "EDITED";
+  return "FLAG";
+}
+
+function markTazEdited(tazId) {
+  const id = String(tazId);
+  state.edits[id] ||= {};
+  state.edits[id].qcStatus = "EDITED";
+  delete state.edits[id].reviewed;
+}
+
+function setTazStatus(tazId, qcStatus) {
+  const id = String(tazId || "");
+  const normalized = String(qcStatus || "").toUpperCase();
+  if (!id || !TAZ_STATUSES.includes(normalized)) return;
+  pushEditHistory();
+  state.edits[id] ||= {};
+  state.edits[id].qcStatus = normalized;
+  delete state.edits[id].reviewed;
+  hideTazStatusMenu();
+  saveLocal();
+  toast(`TAZ ${id} status set to ${normalized}.`);
+}
+
 function renderQueue() {
   const filter = qs("queueFilter").value;
   const list = qs("queueList");
   list.innerHTML = "";
   state.tazOrder
     .filter((item) => {
-      const edit = state.edits[item.id];
-      const importedCount = state.importedCc ? (state.importedCc.get(String(item.id)) || []).length : null;
-      if (filter === "flagged") return item.flag === "Y" || importedCount === 0;
-      if (filter === "edited") return edit?.status === "edited" || edit?.added?.length;
-      if (filter === "reviewed") return edit?.reviewed;
-      if (filter === "unreviewed") return !edit?.reviewed;
-      return true;
+      return filter === "all" || getTazStatus(item.id).toLowerCase() === filter;
     })
     .forEach((item) => {
-      const edit = state.edits[item.id] || {};
       const connectorCount = state.importedCc ? (state.importedCc.get(String(item.id)) || []).length : item.connectors;
-      const importedNoCc = Boolean(state.importedCc) && connectorCount === 0;
       const row = document.createElement("div");
       row.className = `queue-item ${item.id === state.payload?.tazId ? "active" : ""}`;
-      const pill = edit.reviewed ? "reviewed" : edit.status === "edited" || edit.added?.length ? "edited" : importedNoCc || item.flag === "Y" ? "flag" : "";
-      const label = edit.reviewed ? "REVIEWED" : edit.status === "edited" || edit.added?.length ? "EDITED" : importedNoCc ? "NO CC" : item.flag === "Y" ? "FLAGGED" : "READY";
-      row.innerHTML = `<div><strong>${item.id}</strong><br><small>${item.issue || "Ready"} | ${connectorCount} CC</small></div><span class="pill ${pill}">${label}</span>`;
+      const qcStatus = getTazStatus(item.id);
+      row.innerHTML = `<div><strong>${item.id}</strong><br><small>${item.issue || "No issue noted"} | ${connectorCount} CC</small></div><span class="pill ${qcStatus.toLowerCase()}">${qcStatus}</span>`;
       row.addEventListener("click", () => goToTaz(item.id));
+      row.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        showTazStatusMenu(event.clientX, event.clientY, item.id);
+      });
       list.appendChild(row);
     });
 }
@@ -557,13 +641,13 @@ function applyImportedCc(payload) {
 
 function restoreImportedCc() {
   try {
-    const saved = JSON.parse(localStorage.getItem("tazQaqcImportedCc") || "null");
+    const saved = readStoredJson(STORAGE_KEYS.importedCc, null);
     if (!saved?.byTaz || typeof saved.byTaz !== "object") return;
     state.importedCc = new Map(Object.entries(saved.byTaz));
     state.importedSource = String(saved.source || "Uploaded CC file");
   } catch (error) {
     console.warn("Could not restore uploaded CC baseline", error);
-    localStorage.removeItem("tazQaqcImportedCc");
+    localStorage.removeItem(STORAGE_KEYS.importedCc);
   }
 }
 
@@ -608,8 +692,8 @@ async function importCcFiles(event) {
     state.edits = {};
     state.undoStack = [];
     state.redoStack = [];
-    localStorage.removeItem("tazQaqcEdits");
-    localStorage.setItem("tazQaqcImportedCc", JSON.stringify({ source: state.importedSource, byTaz: compactByTaz }));
+    localStorage.removeItem(STORAGE_KEYS.edits);
+    localStorage.setItem(STORAGE_KEYS.importedCc, JSON.stringify({ source: state.importedSource, byTaz: compactByTaz }));
     rebuildGlobalConnectorIndex();
     updateImportedCcUi();
     updateHistoryButtons();
@@ -633,14 +717,23 @@ async function resetImportedCc() {
   state.edits = {};
   state.undoStack = [];
   state.redoStack = [];
-  localStorage.removeItem("tazQaqcImportedCc");
-  localStorage.removeItem("tazQaqcEdits");
+  localStorage.removeItem(STORAGE_KEYS.importedCc);
+  localStorage.removeItem(STORAGE_KEYS.edits);
   rebuildGlobalConnectorIndex();
   updateImportedCcUi();
   updateHistoryButtons();
   renderQueue();
   await goToTaz(state.payload?.tazId || state.tazOrder[0].id);
   toast("Default CC data restored.");
+}
+
+function resetBrowserData() {
+  const confirmed = confirm(
+    "Reset this tool to its initial data? This permanently deletes all browser-saved connector edits, QC notes, reviewed status, uploaded CC data, and custom layer order. Export anything you need first."
+  );
+  if (!confirmed) return;
+  Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
+  window.location.reload();
 }
 
 function shiftTaz(delta) {
@@ -661,7 +754,7 @@ function applySavedEdits(payload) {
 }
 
 function saveLocal() {
-  localStorage.setItem("tazQaqcEdits", JSON.stringify(state.edits));
+  localStorage.setItem(STORAGE_KEYS.edits, JSON.stringify(state.edits));
   rebuildGlobalConnectorIndex();
   updateHistoryButtons();
   renderQueue();
@@ -688,7 +781,7 @@ function updateHistoryButtons() {
 
 async function restoreEdits(snapshot) {
   state.edits = JSON.parse(snapshot || "{}");
-  localStorage.setItem("tazQaqcEdits", JSON.stringify(state.edits));
+  localStorage.setItem(STORAGE_KEYS.edits, JSON.stringify(state.edits));
   state.selected = null;
   state.pendingNode = null;
   state.contextConnector = null;
@@ -1294,6 +1387,7 @@ function applyEditToNode(node) {
   state.edits[tazId] ||= {};
   state.edits[tazId].connectors ||= {};
   state.edits[tazId].connectors[state.selected.ccPt] = edit;
+  markTazEdited(tazId);
   Object.assign(state.selected, edit);
   state.pendingNode = null;
   state.dirty = false;
@@ -1329,6 +1423,21 @@ function hideContextMenu() {
   qs("ccContextMenu").classList.add("hidden");
 }
 
+function showTazStatusMenu(clientX, clientY, tazId) {
+  state.statusMenuTazId = String(tazId);
+  const menu = qs("tazStatusMenu");
+  qs("tazStatusMenuTitle").textContent = `TAZ ${tazId} status`;
+  menu.classList.remove("hidden");
+  const menuRect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - menuRect.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(clientY, window.innerHeight - menuRect.height - 8))}px`;
+}
+
+function hideTazStatusMenu() {
+  qs("tazStatusMenu").classList.add("hidden");
+  state.statusMenuTazId = null;
+}
+
 function deleteSelectedConnector() {
   const connector = state.contextConnector || state.selected;
   if (!connector || !state.payload) {
@@ -1345,6 +1454,7 @@ function deleteSelectedConnector() {
     if (!state.edits[tazId].deleted.includes(connector.ccPt)) state.edits[tazId].deleted.push(connector.ccPt);
     if (state.edits[tazId].connectors) delete state.edits[tazId].connectors[connector.ccPt];
   }
+  markTazEdited(tazId);
   state.payload.connectors = state.payload.connectors.filter((item) => item.ccPt !== connector.ccPt);
   state.selected = null;
   state.contextConnector = null;
@@ -1388,7 +1498,8 @@ function saveQcNoteDraft(refreshUi) {
   } else {
     state.edits[tazId].note = note;
   }
-  localStorage.setItem("tazQaqcEdits", JSON.stringify(state.edits));
+  markTazEdited(tazId);
+  localStorage.setItem(STORAGE_KEYS.edits, JSON.stringify(state.edits));
   if (refreshUi) {
     rebuildGlobalConnectorIndex();
     renderQueue();
@@ -1440,6 +1551,7 @@ function addConnector(node) {
   state.edits[tazId] ||= {};
   state.edits[tazId].added ||= [];
   state.edits[tazId].added.push(connector);
+  markTazEdited(tazId);
   state.addMode = false;
   updateAddModeUi();
   saveLocal();
@@ -1451,7 +1563,8 @@ function markReviewed() {
   const tazId = state.payload.tazId;
   pushEditHistory();
   state.edits[tazId] ||= {};
-  state.edits[tazId].reviewed = true;
+  state.edits[tazId].qcStatus = "REVIEWED";
+  delete state.edits[tazId].reviewed;
   state.edits[tazId].note = qs("qcNote").value;
   saveLocal();
   toast(`TAZ ${tazId} marked reviewed.`);
@@ -1513,11 +1626,34 @@ async function exportFinalCc() {
   status(`Exported ${rows.length} ${format.toUpperCase()} CC records${noteStatus}.`);
 }
 
+function tazQcStatusRows() {
+  return state.tazOrder.map((item) => ({
+    TAZ_ID: String(item.id),
+    QC_STATUS: getTazStatus(item.id),
+    QC_NOTES: state.edits[String(item.id)]?.note || "",
+  }));
+}
+
+async function exportTazQcStatus() {
+  const format = document.querySelector('input[name="tazStatusExportFormat"]:checked')?.value || "csv";
+  hideTazStatusExportDialog();
+  const rows = tazQcStatusRows();
+  if (format === "csv") {
+    downloadBlob(makeCsv(rows, ["TAZ_ID", "QC_STATUS", "QC_NOTES"]), "taz_qc_status.csv", "text/csv;charset=utf-8");
+  } else {
+    toast("Preparing TAZ QC Status Shapefile...");
+    const features = rows.map((row) => ({ ...row, geom: state.tazById.get(row.TAZ_ID)?.geom }));
+    downloadBlob(await makeTazStatusShapefile(features), "taz_qc_status_shapefile.zip", "application/zip");
+  }
+  status(`Exported ${rows.length} TAZ QC status records as ${format === "csv" ? "CSV" : "Shapefile ZIP"}.`);
+  toast(`Exported ${rows.length} TAZ QC statuses.`);
+}
+
 function makeDbf(rows, fields = [
     { name: "A", len: 20 },
     { name: "B", len: 20 },
     { name: "FCLASS", len: 8 },
-  ]) {
+  ], encoding = "latin1") {
   const headerLen = 32 + fields.length * 32 + 1;
   const recordLen = 1 + fields.reduce((s, f) => s + f.len, 0);
   const buffer = new ArrayBuffer(headerLen + rows.length * recordLen + 1);
@@ -1541,8 +1677,9 @@ function makeDbf(rows, fields = [
     let off = headerLen + i * recordLen;
     bytes[off++] = 0x20;
     for (const field of fields) {
-      const value = String(row[field.name] ?? "").replace(/[\r\n\t]+/g, " ").slice(0, field.len).padEnd(field.len, " ");
-      writeAscii(bytes, off, value, field.len);
+      const value = String(row[field.name] ?? "").replace(/[\r\n\t]+/g, " ");
+      if (encoding === "utf8") writeUtf8Padded(bytes, off, value, field.len);
+      else writeAscii(bytes, off, value.slice(0, field.len).padEnd(field.len, " "), field.len);
       off += field.len;
     }
   });
@@ -1576,6 +1713,184 @@ function makeCsv(rows, fields) {
   };
   const lines = [fields.join(","), ...rows.map((row) => fields.map((field) => escapeCsv(row[field])).join(","))];
   return new Blob(["\ufeff", lines.join("\r\n"), "\r\n"], { type: "text/csv;charset=utf-8" });
+}
+
+function writeUtf8Padded(bytes, offset, text, len) {
+  bytes.fill(0x20, offset, offset + len);
+  const encoder = new TextEncoder();
+  let cursor = 0;
+  for (const character of text) {
+    const encoded = encoder.encode(character);
+    if (cursor + encoded.length > len) break;
+    bytes.set(encoded, offset + cursor);
+    cursor += encoded.length;
+  }
+}
+
+function ringArea(ring) {
+  let area = 0;
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    area += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+  }
+  return area / 2;
+}
+
+function normalizeShapefileRing(rawRing, isOuter) {
+  const ring = rawRing.map(([x, y]) => [Number(x), Number(y)]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+  if (ring.length && (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1])) ring.push([...ring[0]]);
+  const shouldReverse = isOuter ? ringArea(ring) > 0 : ringArea(ring) < 0;
+  return shouldReverse ? ring.reverse() : ring;
+}
+
+function shapeBounds(records) {
+  const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const record of records) {
+    for (const ring of record.rings) {
+      for (const [x, y] of ring) {
+        bounds.minX = Math.min(bounds.minX, x);
+        bounds.minY = Math.min(bounds.minY, y);
+        bounds.maxX = Math.max(bounds.maxX, x);
+        bounds.maxY = Math.max(bounds.maxY, y);
+      }
+    }
+  }
+  return Number.isFinite(bounds.minX) ? bounds : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+}
+
+function writeShapefileHeader(view, byteLength, bounds) {
+  view.setInt32(0, 9994, false);
+  view.setInt32(24, byteLength / 2, false);
+  view.setInt32(28, 1000, true);
+  view.setInt32(32, 5, true);
+  view.setFloat64(36, bounds.minX, true);
+  view.setFloat64(44, bounds.minY, true);
+  view.setFloat64(52, bounds.maxX, true);
+  view.setFloat64(60, bounds.maxY, true);
+}
+
+function makePolygonShapefile(features) {
+  const records = features.map((feature) => {
+    if (feature.geom?.type !== "Polygon") throw new Error(`TAZ ${feature.TAZ_ID} does not have Polygon geometry.`);
+    const rings = feature.geom.coordinates.map((ring, index) => normalizeShapefileRing(ring, index === 0)).filter((ring) => ring.length >= 4);
+    const bounds = shapeBounds([{ rings }]);
+    const pointCount = rings.reduce((sum, ring) => sum + ring.length, 0);
+    const contentBytes = 44 + rings.length * 4 + pointCount * 16;
+    return { rings, bounds, pointCount, contentBytes };
+  });
+  const bounds = shapeBounds(records);
+  const shpBytes = 100 + records.reduce((sum, record) => sum + 8 + record.contentBytes, 0);
+  const shxBytes = 100 + records.length * 8;
+  const shp = new Uint8Array(shpBytes);
+  const shx = new Uint8Array(shxBytes);
+  const shpView = new DataView(shp.buffer);
+  const shxView = new DataView(shx.buffer);
+  writeShapefileHeader(shpView, shpBytes, bounds);
+  writeShapefileHeader(shxView, shxBytes, bounds);
+  let shpOffset = 100;
+  records.forEach((record, recordIndex) => {
+    const contentWords = record.contentBytes / 2;
+    const shxOffset = 100 + recordIndex * 8;
+    shxView.setInt32(shxOffset, shpOffset / 2, false);
+    shxView.setInt32(shxOffset + 4, contentWords, false);
+    shpView.setInt32(shpOffset, recordIndex + 1, false);
+    shpView.setInt32(shpOffset + 4, contentWords, false);
+    let offset = shpOffset + 8;
+    shpView.setInt32(offset, 5, true);
+    offset += 4;
+    [record.bounds.minX, record.bounds.minY, record.bounds.maxX, record.bounds.maxY].forEach((value) => {
+      shpView.setFloat64(offset, value, true);
+      offset += 8;
+    });
+    shpView.setInt32(offset, record.rings.length, true);
+    shpView.setInt32(offset + 4, record.pointCount, true);
+    offset += 8;
+    let pointIndex = 0;
+    record.rings.forEach((ring) => {
+      shpView.setInt32(offset, pointIndex, true);
+      offset += 4;
+      pointIndex += ring.length;
+    });
+    record.rings.flat().forEach(([x, y]) => {
+      shpView.setFloat64(offset, x, true);
+      shpView.setFloat64(offset + 8, y, true);
+      offset += 16;
+    });
+    shpOffset += 8 + record.contentBytes;
+  });
+  return { shp, shx };
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function makeStoredZip(entries) {
+  const encoder = new TextEncoder();
+  const prepared = entries.map(({ name, data }) => {
+    const nameBytes = encoder.encode(name);
+    const bytes = data instanceof Uint8Array ? data : encoder.encode(String(data));
+    return { nameBytes, bytes, crc: crc32(bytes), localOffset: 0 };
+  });
+  const localSize = prepared.reduce((sum, entry) => sum + 30 + entry.nameBytes.length + entry.bytes.length, 0);
+  const centralSize = prepared.reduce((sum, entry) => sum + 46 + entry.nameBytes.length, 0);
+  const zip = new Uint8Array(localSize + centralSize + 22);
+  const view = new DataView(zip.buffer);
+  let offset = 0;
+  prepared.forEach((entry) => {
+    entry.localOffset = offset;
+    view.setUint32(offset, 0x04034b50, true);
+    view.setUint16(offset + 4, 20, true);
+    view.setUint16(offset + 6, 0x0800, true);
+    view.setUint32(offset + 14, entry.crc, true);
+    view.setUint32(offset + 18, entry.bytes.length, true);
+    view.setUint32(offset + 22, entry.bytes.length, true);
+    view.setUint16(offset + 26, entry.nameBytes.length, true);
+    zip.set(entry.nameBytes, offset + 30);
+    zip.set(entry.bytes, offset + 30 + entry.nameBytes.length);
+    offset += 30 + entry.nameBytes.length + entry.bytes.length;
+  });
+  const centralOffset = offset;
+  prepared.forEach((entry) => {
+    view.setUint32(offset, 0x02014b50, true);
+    view.setUint16(offset + 4, 20, true);
+    view.setUint16(offset + 6, 20, true);
+    view.setUint16(offset + 8, 0x0800, true);
+    view.setUint32(offset + 16, entry.crc, true);
+    view.setUint32(offset + 20, entry.bytes.length, true);
+    view.setUint32(offset + 24, entry.bytes.length, true);
+    view.setUint16(offset + 28, entry.nameBytes.length, true);
+    view.setUint32(offset + 42, entry.localOffset, true);
+    zip.set(entry.nameBytes, offset + 46);
+    offset += 46 + entry.nameBytes.length;
+  });
+  view.setUint32(offset, 0x06054b50, true);
+  view.setUint16(offset + 8, prepared.length, true);
+  view.setUint16(offset + 10, prepared.length, true);
+  view.setUint32(offset + 12, centralSize, true);
+  view.setUint32(offset + 16, centralOffset, true);
+  return new Blob([zip], { type: "application/zip" });
+}
+
+async function makeTazStatusShapefile(features) {
+  const { shp, shx } = makePolygonShapefile(features);
+  const dbf = new Uint8Array(await makeDbf(features, [
+    { name: "TAZ_ID", len: 20 },
+    { name: "QC_STATUS", len: 10 },
+    { name: "QC_NOTES", len: 250 },
+  ], "utf8").arrayBuffer());
+  const prj = 'PROJCS["NAD83_Georgia_Statewide_Lambert_US_Foot",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Conformal_Conic"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",-83.5],PARAMETER["Standard_Parallel_1",31.4166666666667],PARAMETER["Standard_Parallel_2",34.2833333333333],PARAMETER["Latitude_Of_Origin",0],UNIT["Foot_US",0.3048006096012192]]';
+  return makeStoredZip([
+    { name: "taz_qc_status.shp", data: shp },
+    { name: "taz_qc_status.shx", data: shx },
+    { name: "taz_qc_status.dbf", data: dbf },
+    { name: "taz_qc_status.prj", data: prj },
+    { name: "taz_qc_status.cpg", data: "UTF-8" },
+  ]);
 }
 
 function downloadBlob(blob, filename, type) {

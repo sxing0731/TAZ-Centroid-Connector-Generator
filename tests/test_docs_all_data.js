@@ -42,6 +42,12 @@ assert.match(appSource, /hoveredTazId/);
 assert.match(appSource, /updateHoveredTaz/);
 assert.match(appSource, /function exportFinalCc/);
 assert.match(appSource, /function makeCsv/);
+assert.match(appSource, /function resetBrowserData/);
+assert.match(appSource, /resetBrowserDataBtn/);
+assert.match(appSource, /Object\.values\(STORAGE_KEYS\)/);
+assert.match(appSource, /function getTazStatus/);
+assert.match(appSource, /function exportTazQcStatus/);
+assert.match(appSource, /function makePolygonShapefile/);
 
 console.log(JSON.stringify({
   tazs: data.tazs.length,
