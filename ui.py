@@ -35,9 +35,9 @@ class ConnectorApp(ttk.Frame):
             "link_to_node": tk.StringVar(value="B"),
             "link_func_class": tk.StringVar(value="FUNC_CLASS"),
             "sector_count": tk.StringVar(value="10"),
-            "target_count": tk.StringVar(value="4"),
-            "minimum_count": tk.StringVar(value="2"),
-            "minimum_angle": tk.StringVar(value="60"),
+            "target_count": tk.StringVar(value="3"),
+            "minimum_count": tk.StringVar(value="1"),
+            "minimum_angle": tk.StringVar(value="70"),
             "maximum_snap": tk.StringVar(value=""),
             "blocked_major_level": tk.StringVar(value="2"),
             "snap_blocked_major_level": tk.StringVar(value="2"),
@@ -93,13 +93,13 @@ class ConnectorApp(ttk.Frame):
         parameters.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         parameter_rows = [
             ("Angular sectors per TAZ", "sector_count"),
-            ("Maximum connectors (2-5)", "target_count"),
-            ("Minimum connectors (2-5)", "minimum_count"),
+            ("Maximum connectors (1-3)", "target_count"),
+            ("Minimum connectors (1-3)", "minimum_count"),
             ("Minimum angle", "minimum_angle"),
             ("Maximum snap distance (blank = unlimited)", "maximum_snap"),
             ("Major intersection MAJOR_LEVEL (<=)", "blocked_major_level"),
             ("Blocked snap MAJOR_LEVEL (<=)", "snap_blocked_major_level"),
-            ("Snap node boundary tolerance", "boundary_tolerance"),
+            ("Maximum connector length outside TAZ", "boundary_tolerance"),
         ]
         for index, (label, key) in enumerate(parameter_rows):
             row, pair = divmod(index, 2)

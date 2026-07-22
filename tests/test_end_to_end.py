@@ -65,9 +65,9 @@ def test_complete_workflow_and_exports(tmp_path) -> None:
         output_folder=str(output),
         fields=FieldMapping(taz_id="ZONE", node_id="N"),
         sector_count=10,
-        target_connector_count=4,
-        minimum_connector_count=2,
-        minimum_angle=60,
+        target_connector_count=3,
+        minimum_connector_count=1,
+        minimum_angle=70,
     )
     layers = run_processing(
         config,
@@ -82,7 +82,7 @@ def test_complete_workflow_and_exports(tmp_path) -> None:
     assert "taz_snap_flags" in layers
     assert layers["taz_snap_flags"]["SNAP_FLAG"].iloc[0] in {"Y", "N"}
     assert len(layers["boundary_candidate_points"]) == config.sector_count
-    assert 2 <= len(layers["final_connector_lines"]) <= 4
+    assert 1 <= len(layers["final_connector_lines"]) <= 3
     assert "N" in layers["final_connector_lines"].columns
     assert "CROSSES_TAZ" in layers["final_connector_lines"].columns
     assert "OUTSIDE_LEN" in layers["final_connector_lines"].columns
@@ -91,9 +91,18 @@ def test_complete_workflow_and_exports(tmp_path) -> None:
     assert "MAJOR_INT" in layers["final_connector_lines"].columns
     assert "SNAP_ALLOWED" in layers["final_connector_lines"].columns
     assert "SNAP_FAIL_REASON" in layers["final_connector_lines"].columns
+    assert "INTERIOR_FALLBACK" in layers["final_connector_lines"].columns
     assert layers["final_connector_lines"]["SNAP_ALLOWED"].all()
     assert layers["final_connector_lines"]["END_ON_BND"].all()
+    assert (layers["final_connector_lines"]["OUTSIDE_LEN"] <= 200.0).all()
+    assert not layers["final_connector_lines"]["CROSSES_GSTDM"].any()
     assert not (layers["final_connector_lines"]["MAJOR_LEVEL"].fillna(0) <= 2).any()
+    assert layers["final_connector_lines"].groupby("CC_NODE")["N"].nunique().max() == 1
+    angles = layers["final_connector_lines"]["ANGLE_DEG"].tolist()
+    for index, first in enumerate(angles):
+        for second in angles[index + 1 :]:
+            difference = abs(float(first) - float(second)) % 360.0
+            assert min(difference, 360.0 - difference) >= 70.0
     assert run_output.parent == output
     assert run_output.name.startswith("run_")
     assert (run_output / "taz_centroid_connectors.gpkg").exists()
@@ -104,5 +113,5 @@ def test_complete_workflow_and_exports(tmp_path) -> None:
         run_output / "taz_centroid_connectors.gpkg",
         layer="final_connector_lines",
     )
-    assert 2 <= len(written) <= 4
+    assert 1 <= len(written) <= 3
     assert written.crs == taz.crs

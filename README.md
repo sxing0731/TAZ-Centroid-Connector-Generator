@@ -73,25 +73,33 @@ the desired layer is not the first layer.
    node touching classes 1, 3, and 5 gets `MAJOR_LEVEL = 1`.
 6. For each sector direction, find the nearest eligible GSTDM Master NODE to
    the centroid-to-boundary radial line. `MAJOR_INT` is defined by
-   `MAJOR_LEVEL <= blocked_major_level` (default 2). Snap eligibility excludes
-   nodes where `MAJOR_LEVEL <= snap_blocked_major_level` (default 2, so 3/4/5
-   snap nodes are allowed), its centroid-to-node bearing falls inside the sector, and it
-   is within `boundary_endpoint_tolerance` feet of the parent TAZ boundary
-   (default 200). If no sector/boundary-valid node exists, the engine expands
-   outward from that sector endpoint while preserving the sector direction. If
-   no same-sector node can be found, it falls back to the nearest eligible node.
+   `MAJOR_LEVEL <= blocked_major_level` (default 2). Only non-major nodes with
+   `MAJOR_LEVEL` 3/4/5 are eligible. The centroid-to-node connector may extend
+   outside its TAZ by at most `boundary_endpoint_tolerance` feet (default 200)
+   and may not intersect a GSTDM LINK before reaching its target-node endpoint.
+   The engine first searches for nodes within 200 ft of the TAZ boundary. If no
+   boundary-near node passes every hard rule, it may use an internal node and
+   records `INTERIOR_FALLBACK = True`. It never relaxes the 200-ft outside or
+   GSTDM-crossing limits.
 7. Rank snap-eligible sectors by HERE road-link density and enforce angular
    separation so the chosen directions are not clustered.
-8. Relax the angle threshold in 5-degree increments when needed to reach the
-   minimum of 2 connectors; select 4 connectors by default.
-9. Snap selected candidates to the matched GSTDM Master NODE.
-10. Create straight connector lines from the interior centroid to the snapped
+8. Reserve every selected GSTDM target node to a single TAZ. If two TAZs prefer
+   the same node, keep it for the TAZ with fewer valid alternatives and redirect
+   the other TAZ to its next nearby candidate that satisfies every hard rule.
+9. Enforce a hard 70-degree minimum angle between final snapped connectors.
+   Never relax this threshold; discard lower-priority candidates that do not fit
+   and select no more than 3 connectors per TAZ.
+10. Snap selected candidates to the matched GSTDM Master NODE.
+11. Create straight connector lines from the interior centroid to the snapped
    node.
-11. Flag any final line segment that extends outside its parent TAZ.
-12. Flag TAZs with no eligible sector snap nodes or fewer than the configured
+12. Reject any connector with more than 200 ft outside its parent TAZ or any
+    intersection with a GSTDM LINK away from the target endpoint. Allowed
+    outside segments remain documented in `CROSSES_TAZ` and `OUTSIDE_LEN`.
+13. Reject output in which a GSTDM target node is shared by different TAZs.
+14. Flag TAZs with no eligible sector snap nodes or fewer than the configured
     minimum connector count. TAZs below the target count still keep
     `SNAP_ISSUE = BELOW_TARGET_CONNECTORS` for review, but `SNAP_FLAG = N`.
-13. Export GIS layers and tables, including the GSTDM LINKS display layer.
+15. Export GIS layers and tables, including the GSTDM LINKS display layer.
 
 All distances are interpreted in source-CRS units, expected to be feet.
 
@@ -117,7 +125,9 @@ The output folder contains:
 The source TAZ identifier is exported as `N`. QA fields include
 `LINE_NODE_DIST`, `MATCH_BND_DIST`, `MAJOR_LEVEL`, `MAJOR_INT`,
 `SNAP_ALLOWED`, `SNAP_FAIL_REASON`, `END_BND_DIST`, `END_ON_BND`,
-`CROSSES_TAZ`, and `OUTSIDE_LEN`.
+`CROSSES_TAZ`, `OUTSIDE_LEN`, and `CROSSES_GSTDM`.
+`INTERIOR_FALLBACK` identifies the exceptional connectors whose endpoint is
+farther than 200 ft inside the TAZ because no valid boundary-near node existed.
 
 Empty layers are reported as warnings and are not written because some
 GeoPackage drivers cannot create an empty layer reliably.
@@ -138,6 +148,9 @@ the left queue zooms directly to that TAZ; no per-TAZ JSON request is made.
 The browser Final CC Export supports DBF or CSV. The optional QCNOTES companion
 contains matching `A`, `B`, and `QC_NOTES` fields for the directed connector
 records; disabling the toggle exports only the main `A/B/FCLASS` file.
+The Road basemap uses standard OpenStreetMap raster tiles requested only for the
+current viewport. Tile-completion redraws are batched and the in-memory tile
+cache is bounded to keep pan and zoom interactions responsive.
 TAZ review status uses three values: `FLAG` by default, `EDITED` when uploaded
 CCs differ or browser-saved work changes the TAZ, and `REVIEWED` after approval.
 Right-click a TAZ to set any status manually. Export TAZ QC Status writes
@@ -162,7 +175,7 @@ Right-click a TAZ to set any status manually. Export TAZ QC Status writes
 Processing stops with a clear error for missing/unprojected/mismatched CRS,
 unsupported or invalid geometry, empty layers, missing required fields, null
 TAZ IDs, or duplicate TAZ IDs. Warnings are logged for empty clipped sectors,
-zero-density candidates, relaxed angle thresholds, insufficient candidates,
+zero-density candidates, candidates removed by the hard 70-degree threshold, insufficient candidates,
 and nodes beyond the configured maximum snap distance.
 
 ## QA Checks
@@ -173,6 +186,9 @@ For production acceptance, inspect:
 - selected counts meet the configured target where angular geometry permits;
 - `DENS_RANK` starts at 1 within each TAZ;
 - selected bearings satisfy `ANGLE_THRESHOLD`;
+- every TAZ has 1 to 3 connectors unless it is explicitly flagged for having no
+  valid non-major target;
+- `OUTSIDE_LEN` does not exceed 200 ft and `CROSSES_GSTDM` is false;
 - `NEAR_DIST` and `SNAP_OK` agree with the maximum snap distance;
 - all output layers retain the source CRS;
 - the GeoPackage and CSV outputs reopen successfully.

@@ -20,6 +20,8 @@ const state = {
   lastTapAt: 0,
   basemap: "road",
   tileCache: new Map(),
+  drawPending: false,
+  tileRedrawTimer: null,
   contextConnector: null,
   hoverFeature: null,
   layers: {
@@ -65,7 +67,7 @@ async function init() {
   resizeCanvas();
   window.addEventListener("resize", () => {
     resizeCanvas();
-    draw();
+    scheduleDraw();
   });
   bindCanvas();
   bindControls();
@@ -73,7 +75,7 @@ async function init() {
   const appState = await getJson("/api/state");
   updateHistoryButtons(appState);
   qs("runFolder").textContent = appState.runFolder;
-  state.tazOrder = appState.tazOrder;
+  state.tazOrder = sortTazOrder(appState.tazOrder);
   renderQueue();
   state.allTaz = await getJson("/api/all-taz");
   if (appState.firstTaz) await goToTaz(appState.firstTaz);
@@ -82,7 +84,7 @@ async function init() {
 async function refreshQueueState() {
   const appState = await getJson("/api/state");
   updateHistoryButtons(appState);
-  state.tazOrder = appState.tazOrder;
+  state.tazOrder = sortTazOrder(appState.tazOrder);
   const index = state.tazOrder.findIndex((item) => String(item.id) === String(state.currentTazId));
   if (index >= 0) state.currentIndex = index;
   renderQueue();
@@ -138,8 +140,10 @@ function bindControls() {
   qs("queueFilter").addEventListener("change", renderQueue);
   qs("basemapSelect").addEventListener("change", () => {
     state.basemap = qs("basemapSelect").value;
-    draw();
+    updateBasemapAttribution();
+    scheduleDraw();
   });
+  updateBasemapAttribution();
   document.querySelectorAll(".legend input").forEach((input) => {
     input.addEventListener("change", async () => {
       state.layers[input.dataset.layer] = input.checked;
@@ -280,10 +284,22 @@ function finishPointerGesture(event) {
     }
 }
 
-function renderQueue() {
-  const filter = qs("queueFilter").value;
+function sortTazOrder(items) {
+  return [...items].sort((left, right) => {
+    const leftNumber = Number(left.id);
+    const rightNumber = Number(right.id);
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber !== rightNumber) return leftNumber - rightNumber;
+    return String(left.id).localeCompare(String(right.id), undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function renderQueue({ revealCurrent = false } = {}) {
   const list = qs("queueList");
+  const currentId = String(state.currentTazId ?? "");
+  if (revealCurrent && currentId) qs("queueFilter").value = "all";
+  const filter = qs("queueFilter").value;
   list.innerHTML = "";
+  let activeRow = null;
   state.tazOrder
     .filter((item) => {
       if (filter !== "all") return item.queueStatus === filter;
@@ -291,7 +307,10 @@ function renderQueue() {
     })
     .forEach((item) => {
       const row = document.createElement("div");
-      row.className = `queue-item ${item.id === state.currentTazId ? "active" : ""}`;
+      const isCurrent = String(item.id) === currentId;
+      row.className = `queue-item ${isCurrent ? "active" : ""}`;
+      row.dataset.tazId = String(item.id);
+      if (isCurrent) activeRow = row;
       const status = queueStatusDisplay(item);
       row.innerHTML = `
         <div><strong>${item.id}</strong><br><small>${item.issue || "Ready"} | ${item.connectors} CC</small></div>
@@ -300,6 +319,7 @@ function renderQueue() {
       row.addEventListener("click", () => goToTaz(item.id));
       list.appendChild(row);
     });
+  if (revealCurrent && activeRow) activeRow.scrollIntoView({ block: "center", inline: "nearest" });
 }
 
 function queueStatusDisplay(item) {
@@ -322,7 +342,7 @@ async function goToTaz(id, options = {}) {
   if (!options.keepView) setViewToFeatureCollection(state.payload.context);
   qs("currentTaz").textContent = id;
   qs("jumpInput").value = id;
-  renderQueue();
+  renderQueue({ revealCurrent: true });
   draw();
   const currentCount = state.payload.connectors.features.length;
   const nearbyCount = state.payload.neighborConnectors?.features?.length || 0;
@@ -382,6 +402,32 @@ function draw(mousePoint = null) {
   drawEndpoint(mousePoint);
 }
 
+function scheduleDraw() {
+  if (state.drawPending) return;
+  state.drawPending = true;
+  requestAnimationFrame(() => {
+    state.drawPending = false;
+    draw();
+  });
+}
+
+function scheduleTileRedraw() {
+  if (state.tileRedrawTimer) return;
+  state.tileRedrawTimer = setTimeout(() => {
+    state.tileRedrawTimer = null;
+    scheduleDraw();
+  }, 50);
+}
+
+function updateBasemapAttribution() {
+  const attribution = qs("basemapAttribution");
+  if (!attribution) return;
+  attribution.classList.toggle("hidden", state.basemap === "none");
+  attribution.innerHTML = state.basemap === "satellite"
+    ? '<a href="https://www.esri.com/" target="_blank" rel="noopener">Tiles &copy; Esri</a>'
+    : '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>';
+}
+
 function drawBasemap() {
   const ctx = state.ctx;
   ctx.fillStyle = state.basemap === "satellite" ? "#d5d8d2" : "#eef1f5";
@@ -432,13 +478,14 @@ function getTileImage(x, y, z) {
   if (state.tileCache.has(key)) return state.tileCache.get(key);
   const img = new Image();
   img.crossOrigin = "anonymous";
-  img.onload = () => draw();
+  img.onload = scheduleTileRedraw;
   img.onerror = () => state.tileCache.set(key, null);
   img.src =
     state.basemap === "satellite"
       ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
-      : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`;
+      : `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
   state.tileCache.set(key, img);
+  while (state.tileCache.size > 256) state.tileCache.delete(state.tileCache.keys().next().value);
   return img;
 }
 
@@ -594,12 +641,26 @@ function drawCentroid() {
   const feature = state.payload.centroid.features[0];
   if (!feature) return;
   const p = project(feature.geometry.coordinates);
-  const ctx = state.ctx;
-  ctx.fillStyle = "#111827";
-  ctx.font = "700 22px Segoe UI, Arial";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("*", p.x, p.y);
+  drawCentroidTriangle(state.ctx, p, 17);
+}
+
+function drawCentroidTriangle(ctx, point, radius) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(point.x, point.y - radius);
+  ctx.lineTo(point.x + radius * 0.9, point.y + radius * 0.72);
+  ctx.lineTo(point.x - radius * 0.9, point.y + radius * 0.72);
+  ctx.closePath();
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(255,255,255,0.98)";
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.fillStyle = "#e00000";
+  ctx.fill();
+  ctx.strokeStyle = "#8b0000";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawCurrentTazLabel() {
@@ -685,7 +746,7 @@ function panBy(dx, dy) {
   state.view.maxX += moveX;
   state.view.minY += moveY;
   state.view.maxY += moveY;
-  draw();
+  scheduleDraw();
 }
 
 function findConnectorAt(point) {
@@ -928,6 +989,8 @@ function updateInspector(props) {
   qs("newNode").textContent = state.pendingNode ? state.pendingNode.properties.NODE_ID_TEXT : "-";
   qs("majorLevel").textContent = state.pendingNode ? state.pendingNode.properties.MAJOR_LEVEL : props.MAJOR_LEVEL ?? "-";
   qs("outsideLen").textContent = formatFeet(props.OUTSIDE_LEN);
+  qs("endBoundaryDist").textContent = formatFeet(props.END_BND_DIST);
+  qs("endpointType").textContent = props.INTERIOR_FALLBACK ? "INTERIOR FALLBACK" : "BOUNDARY-NEAR";
   qs("lineNodeDist").textContent = formatFeet(props.LINE_NODE_DIST);
   qs("qcNote").value = props.QC_NOTE || "";
   qs("dirtyBadge").classList.toggle("hidden", !state.dirty);
@@ -1028,6 +1091,8 @@ function clearSelection() {
   qs("newNode").textContent = "-";
   qs("majorLevel").textContent = "-";
   qs("outsideLen").textContent = "-";
+  qs("endBoundaryDist").textContent = "-";
+  qs("endpointType").textContent = "-";
   qs("lineNodeDist").textContent = "-";
   qs("dirtyBadge").classList.add("hidden");
   if (state.payload) draw();

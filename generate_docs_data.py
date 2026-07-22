@@ -65,13 +65,10 @@ def spatial_subset(frame: gpd.GeoDataFrame, geom: Any) -> gpd.GeoDataFrame:
 
 
 def sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
-    issue_rank = 0 if item.get("issue") == "NO_ELIGIBLE_SECTOR_NODE" else 1
-    flag_rank = 0 if item.get("flag") == "Y" else 1
     try:
-        numeric_id: int | str = int(item["id"])
-    except ValueError:
-        numeric_id = item["id"]
-    return (flag_rank, issue_rank, numeric_id)
+        return (0, float(item["id"]), str(item["id"]))
+    except (TypeError, ValueError):
+        return (1, str(item["id"]), str(item["id"]))
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -90,6 +87,8 @@ def connector_item(row: Any, taz_id: str) -> dict[str, Any]:
         "rank": int(number(row.get("DENS_RANK"), 0) or 0),
         "majorLevel": number(row.get("MAJOR_LEVEL")),
         "outsideLen": number(row.get("OUTSIDE_LEN"), 0),
+        "endBoundaryDist": number(row.get("END_BND_DIST"), 0),
+        "interiorFallback": bool(row.get("INTERIOR_FALLBACK", False)),
         "lineNodeDist": number(row.get("LINE_NODE_DIST"), 0),
         "status": "unreviewed",
         "geom": geom_json(row.geometry),
@@ -157,8 +156,8 @@ def build_from_gpkg() -> dict[str, Any]:
         flag = str(row.get("SNAP_FLAG") or "N")
         issue = str(row.get("SNAP_ISSUE") or "").strip()
         selected = int(number(row.get("SELECTED"), 0) or 0)
-        target = int(number(row.get("TARGET"), 4) or 4)
-        minimum = int(number(row.get("MINIMUM"), 2) or 2)
+        target = int(number(row.get("TARGET"), 3) or 3)
+        minimum = int(number(row.get("MINIMUM"), 1) or 1)
         taz_connectors = connectors_by_taz.get(taz_id, connectors.iloc[[]])
 
         order_item = {
@@ -195,6 +194,7 @@ def build_from_gpkg() -> dict[str, Any]:
     return {
         "schemaVersion": 2,
         "generatedFrom": run_folder.name,
+        "nodeSource": run_folder.name,
         "count": len(taz_order),
         "contextFeet": CONTEXT_FEET,
         "tazOrder": taz_order,
@@ -227,8 +227,8 @@ def build_from_existing_static(docs_data: Path) -> dict[str, Any]:
                 "flag": payload.get("flag", "N"),
                 "issue": payload.get("issue", ""),
                 "selected": payload.get("selected", 0),
-                "target": payload.get("target", 4),
-                "minimum": payload.get("minimum", 2),
+                "target": payload.get("target", 3),
+                "minimum": payload.get("minimum", 1),
                 "geom": payload.get("taz"),
             }
         )

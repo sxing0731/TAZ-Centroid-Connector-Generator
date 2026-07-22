@@ -30,9 +30,9 @@ class ProcessingConfig:
     output_folder: str = ""
     fields: FieldMapping = field(default_factory=FieldMapping)
     sector_count: int = 10
-    target_connector_count: int = 4
-    minimum_connector_count: int = 2
-    minimum_angle: float = 60.0
+    target_connector_count: int = 3
+    minimum_connector_count: int = 1
+    minimum_angle: float = 70.0
     maximum_snap_distance: float | None = None
     blocked_major_level: int = 2
     snap_blocked_major_level: int = 2
@@ -43,14 +43,14 @@ class ProcessingConfig:
         """Validate non-spatial configuration values."""
         if not 4 <= self.sector_count <= 72:
             raise ValueError("Sector count must be between 4 and 72.")
-        if not 2 <= self.target_connector_count <= min(5, self.sector_count):
-            raise ValueError("Target connectors must be between 2 and 5 and cannot exceed sector count.")
-        if not 2 <= self.minimum_connector_count <= 5:
-            raise ValueError("Minimum connectors must be between 2 and 5.")
+        if not 1 <= self.target_connector_count <= min(3, self.sector_count):
+            raise ValueError("Target connectors must be between 1 and 3 and cannot exceed sector count.")
+        if not 1 <= self.minimum_connector_count <= 3:
+            raise ValueError("Minimum connectors must be between 1 and 3.")
         if self.minimum_connector_count > self.target_connector_count:
             raise ValueError("Minimum connectors cannot exceed target connectors.")
-        if not 0 <= self.minimum_angle <= 180:
-            raise ValueError("Minimum angle must be between 0 and 180 degrees.")
+        if not 70 <= self.minimum_angle <= 180:
+            raise ValueError("Minimum angle is a hard rule and must be between 70 and 180 degrees.")
         if self.maximum_snap_distance is not None and self.maximum_snap_distance < 0:
             raise ValueError("Maximum snap distance cannot be negative.")
         if not 1 <= self.blocked_major_level <= 5:

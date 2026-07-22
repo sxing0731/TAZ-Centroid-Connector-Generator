@@ -35,6 +35,44 @@ async function main() {
   const csv = await csvBlob.text();
   assert.match(csv, /^A,B,QC_NOTES\r\n/);
   assert.match(csv, /116,66819,"检查, avoid ""ramp"""/);
+  const conflictStart = appSource.indexOf("function findCrossTazNodeConflicts");
+  const conflictEnd = appSource.indexOf("async function exportFinalCc", conflictStart);
+  assert.ok(conflictStart >= 0 && conflictEnd > conflictStart, "cross-TAZ export audit should be present");
+  const conflictFactory = new Function(
+    `${appSource.slice(conflictStart, conflictEnd)}; return findCrossTazNodeConflicts;`
+  );
+  const findConflicts = conflictFactory();
+  assert.deepEqual(
+    findConflicts([
+      { A: "1", B: "77" },
+      { A: "2", B: "77" },
+      { A: "2", B: "88" },
+      { A: "2", B: "88" },
+    ]),
+    [{ nodeId: "77", tazIds: ["1", "2"] }]
+  );
+  const angleStart = appSource.indexOf("function findTazAngleConflicts");
+  const angleEnd = appSource.indexOf("async function exportFinalCc", angleStart);
+  assert.ok(angleStart >= 0 && angleEnd > angleStart, "70-degree export audit should be present");
+  const angleFactory = new Function(
+    "angleDifference",
+    "MIN_CC_ANGLE",
+    `${appSource.slice(angleStart, angleEnd)}; return findTazAngleConflicts;`
+  );
+  const angleDifference = (first, second) => {
+    const difference = Math.abs(first - second) % 360;
+    return Math.min(difference, 360 - difference);
+  };
+  const findAngleConflicts = angleFactory(angleDifference, 70);
+  assert.deepEqual(
+    findAngleConflicts([
+      { A: "1", B: "10", ANGLE_DEG: 0 },
+      { A: "1", B: "20", ANGLE_DEG: 40 },
+      { A: "2", B: "30", ANGLE_DEG: 0 },
+      { A: "2", B: "40", ANGLE_DEG: 80 },
+    ]),
+    [{ tazId: "1", nodeIds: ["10", "20"], separation: 40 }]
+  );
   console.log("QCNOTES DBF and CSV export tests passed");
 }
 
