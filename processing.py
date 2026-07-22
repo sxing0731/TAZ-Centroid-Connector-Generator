@@ -139,7 +139,9 @@ def run_processing(
     )
 
     progress(55, "Matching candidate directions to GSTDM master nodes")
-    candidate_scores = match_candidates_to_nodes(candidate_scores, centroids, taz, nodes, config)
+    candidate_scores = match_candidates_to_nodes(
+        candidate_scores, centroids, taz, nodes, config, gstdm_links
+    )
 
     progress(62, "Selecting connectors by density and angle")
     selected = select_connectors(candidate_scores, config, log)
@@ -147,8 +149,8 @@ def run_processing(
     flagged_count = int((taz_snap_flags["SNAP_FLAG"] == "Y").sum())
     if flagged_count:
         log(
-            f"{flagged_count} TAZs do not have enough sector-valid snap nodes "
-            f"within {config.boundary_endpoint_tolerance:g} ft of the boundary; "
+            f"{flagged_count} TAZs do not have enough valid non-major nodes "
+            f"under the {config.boundary_endpoint_tolerance:g}-ft outside-TAZ and GSTDM-crossing rules; "
             "see taz_snap_flags.",
             logging.WARNING,
         )
@@ -156,7 +158,7 @@ def run_processing(
     progress(70, "Snapping selected candidates to master nodes")
     selected_with_centroids = attach_centroid_geometry(selected, centroids)
     snapped_nodes, final_lines = snap_candidates_to_nodes(
-        selected_with_centroids, nodes, taz, config, log
+        selected_with_centroids, nodes, taz, config, log, gstdm_links
     )
     crossing_count = int(final_lines["CROSSES_TAZ"].sum()) if not final_lines.empty else 0
     if crossing_count:
@@ -164,6 +166,13 @@ def run_processing(
             f"{crossing_count} final connectors extend outside their parent TAZ; "
             "see CROSSES_TAZ and OUTSIDE_LEN.",
             logging.WARNING,
+        )
+    gstdm_crossing_count = (
+        int(final_lines["CROSSES_GSTDM"].sum()) if not final_lines.empty else 0
+    )
+    if gstdm_crossing_count:
+        raise RuntimeError(
+            f"{gstdm_crossing_count} final connectors cross GSTDM links."
         )
 
     progress(82, "Building candidate connector lines")

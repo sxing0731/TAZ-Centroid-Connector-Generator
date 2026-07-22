@@ -38,6 +38,10 @@ Only nodes above the major-intersection cutoff are valid snap targets:
 - Allowed: `MAJOR_LEVEL = 3`, `MAJOR_LEVEL = 4`, or `MAJOR_LEVEL = 5`
 - Blocked: `MAJOR_LEVEL <= 2`
 - Blocked: missing `MAJOR_LEVEL`
+- Every TAZ must retain 1 to 3 connectors.
+- A connector may extend outside its TAZ by at most 200 ft.
+- A connector may meet a GSTDM LINK only at its target-node endpoint; crossing
+  another GSTDM LINK is blocked.
 
 Workflow:
 

@@ -157,8 +157,8 @@ def build_from_gpkg() -> dict[str, Any]:
         flag = str(row.get("SNAP_FLAG") or "N")
         issue = str(row.get("SNAP_ISSUE") or "").strip()
         selected = int(number(row.get("SELECTED"), 0) or 0)
-        target = int(number(row.get("TARGET"), 4) or 4)
-        minimum = int(number(row.get("MINIMUM"), 2) or 2)
+        target = int(number(row.get("TARGET"), 3) or 3)
+        minimum = int(number(row.get("MINIMUM"), 1) or 1)
         taz_connectors = connectors_by_taz.get(taz_id, connectors.iloc[[]])
 
         order_item = {
@@ -195,6 +195,7 @@ def build_from_gpkg() -> dict[str, Any]:
     return {
         "schemaVersion": 2,
         "generatedFrom": run_folder.name,
+        "nodeSource": run_folder.name,
         "count": len(taz_order),
         "contextFeet": CONTEXT_FEET,
         "tazOrder": taz_order,
@@ -227,8 +228,8 @@ def build_from_existing_static(docs_data: Path) -> dict[str, Any]:
                 "flag": payload.get("flag", "N"),
                 "issue": payload.get("issue", ""),
                 "selected": payload.get("selected", 0),
-                "target": payload.get("target", 4),
-                "minimum": payload.get("minimum", 2),
+                "target": payload.get("target", 3),
+                "minimum": payload.get("minimum", 1),
                 "geom": payload.get("taz"),
             }
         )

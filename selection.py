@@ -71,8 +71,8 @@ def select_connectors(
         rejected_count = len(group) - len(eligible)
         if rejected_count:
             log(
-                f"TAZ {taz_id}: excluded {rejected_count} candidates without an "
-                "eligible snap node in the sector and boundary tolerance.",
+                f"TAZ {taz_id}: excluded {rejected_count} candidates without a "
+                "valid non-major node within the outside-TAZ and GSTDM-crossing limits.",
                 20,
             )
         ranked = eligible.sort_values(

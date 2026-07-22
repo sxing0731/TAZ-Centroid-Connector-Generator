@@ -4,7 +4,7 @@ Updated: July 12, 2026
 
 ## Project Location
 
-`C:\Users\xings\iCloudDrive\Codex\TAZ_Centroid_Connector_Generator`
+`C:\Projects\TAZ_Centroid_Connector_Generator`
 
 The local working tree contains uncommitted changes and input/output GIS data.
 Do not discard or reset these changes.
@@ -30,12 +30,13 @@ centroid connectors for TAZ polygons without ArcGIS Pro or ArcPy.
 9. For each selected sector direction, find the nearest GSTDM node to the
    centroid-to-boundary radial line. `MAJOR_INT` is `Y` for
    `MAJOR_LEVEL <= 2`, while snap eligibility also excludes
-   `MAJOR_LEVEL <= 2`; levels 3/4/5 can be used as snap nodes. When no
-   boundary-near node is available, expand outward from the sector endpoint
-   before falling back to the nearest eligible node.
+   `MAJOR_LEVEL <= 2`; only non-major levels 3/4/5 can be used as snap nodes.
+   A connector may have at most 200 ft outside its TAZ and cannot cross a GSTDM
+   LINK before reaching the target-node endpoint. These limits are never relaxed.
 10. Final connectors are straight lines from the interior centroid to the snapped
    GSTDM node.
-11. If any part of a final connector lies outside its parent TAZ, flag it.
+11. Keep between 1 and 3 connectors per TAZ. Flag a TAZ only when no valid
+    connector can satisfy all hard rules.
 12. The output TAZ number field is `N`.
 
 Corner avoidance and major-intersection avoidance are no longer active rules.
@@ -53,15 +54,15 @@ Current TAZ ID mapping:
 
 HERE Master LINKS for density:
 
-`input/Master LINKS/GEORGIA_2025_LINK_GA_Cleaned_New_TAZ.shp`
+`input/HERE Master LINKS/GEORGIA_2025_GA_Clean_Attributes.shp`
 
 GSTDM LINKS for display/output context:
 
-`input/Master LINKS/GSTDM_2025_GA_LINK_0710.shp`
+`input/GSTDM LINKS/GSTDM_2025_GA_LINK_0710.shp`
 
 GSTDM Master NODES:
 
-`input/Master NODES/GEORGIA_2025_NODE_GA_NEW_TAZ.shp`
+`input/GSTDM NOTES/GSTDM_2025_GA_NODE_0710.shp`
 
 Current node ID mapping:
 
@@ -70,13 +71,13 @@ Current node ID mapping:
 ## Current Parameters
 
 - Sector count: 10
-- Target connectors: 4
-- Minimum connectors: 2
+- Maximum connectors: 3
+- Minimum connectors: 1
 - Minimum angle: 60 degrees
 - Maximum snap distance: optional/unlimited when blank
 - Major-intersection level ceiling: 2
 - Snap blocked major level ceiling: 2
-- Endpoint boundary tolerance: 200 ft
+- Maximum connector length outside TAZ: 200 ft
 
 ## Output Fields
 
@@ -96,6 +97,7 @@ Current node ID mapping:
 - `END_ON_BND`: endpoint falls within the boundary tolerance
 - `CROSSES_TAZ`: final connector has geometry outside its parent TAZ
 - `OUTSIDE_LEN`: length of connector outside its parent TAZ
+- `CROSSES_GSTDM`: connector intersects a GSTDM link before its target endpoint
 
 ## Selection Priority
 
@@ -131,7 +133,5 @@ Latest result: `7 passed`.
 
 ## Recommended Next Decisions
 
-1. Decide a production maximum snap distance.
-2. Confirm whether connectors outside the TAZ should only be flagged or should
-   be rejected and replaced automatically.
-3. Review QA images before publishing another build.
+1. Decide a production maximum snap distance beyond the current hard rules.
+2. Review QA images before publishing another build.

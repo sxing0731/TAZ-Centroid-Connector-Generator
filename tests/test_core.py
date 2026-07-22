@@ -22,7 +22,7 @@ def silent_log(message: str, level: int = logging.INFO) -> None:
 
 
 def test_representative_point_and_candidate_minimum() -> None:
-    config = ProcessingConfig(sector_count=10, target_connector_count=4, minimum_connector_count=3)
+    config = ProcessingConfig(sector_count=10, target_connector_count=3, minimum_connector_count=1)
     polygon = Polygon([(0, 0), (10000, 0), (10000, 10000), (0, 10000)])
     taz = gpd.GeoDataFrame({"N": [1]}, geometry=[polygon], crs="EPSG:2240")
     centroids = create_interior_centroids(taz, config)
@@ -35,8 +35,8 @@ def test_representative_point_and_candidate_minimum() -> None:
 def test_density_and_selection() -> None:
     config = ProcessingConfig(
         sector_count=10,
-        target_connector_count=4,
-        minimum_connector_count=3,
+        target_connector_count=3,
+        minimum_connector_count=1,
         minimum_angle=60,
     )
     polygon = Polygon([(0, 0), (10000, 0), (10000, 10000), (0, 10000)])
@@ -75,8 +75,8 @@ def test_selection_uses_density_without_safety_rejection() -> None:
         crs="EPSG:2240",
     )
     config = ProcessingConfig(
-        target_connector_count=5,
-        minimum_connector_count=2,
+        target_connector_count=3,
+        minimum_connector_count=1,
         minimum_angle=60,
     )
     selected = select_connectors(candidates, config, silent_log)
@@ -95,8 +95,8 @@ def test_selection_finds_larger_angularly_separated_set() -> None:
         crs="EPSG:2240",
     )
     config = ProcessingConfig(
-        target_connector_count=5,
-        minimum_connector_count=2,
+        target_connector_count=3,
+        minimum_connector_count=1,
         minimum_angle=60,
     )
     selected = select_connectors(candidates, config, silent_log)
@@ -198,7 +198,7 @@ def test_candidate_direction_allows_level_three_four_and_five_snap_nodes() -> No
     assert annotated["SNAP_ALLOWED"].iloc[0]
 
 
-def test_candidate_direction_expands_outward_before_nearest_fallback() -> None:
+def test_candidate_direction_rejects_more_than_200_feet_outside_taz() -> None:
     config = ProcessingConfig(boundary_endpoint_tolerance=200.0)
     taz = gpd.GeoDataFrame(
         {"N": [1]},
@@ -221,14 +221,50 @@ def test_candidate_direction_expands_outward_before_nearest_fallback() -> None:
     )
     nodes = gpd.GeoDataFrame(
         {"NODE_ID": [10, 20], "MAJOR_LEVEL": [4, 4]},
-        geometry=[Point(-100, 0), Point(500, 500)],
+        geometry=[Point(1250, 0), Point(1150, 25)],
         crs=taz.crs,
     )
     annotated = match_candidates_to_nodes(candidates, centroids, taz, nodes, config)
     assert annotated["MATCH_NODE_IDX"].iloc[0] == 1
     assert annotated["SNAP_ALLOWED"].iloc[0]
-    assert annotated["SNAP_FALLBACK"].iloc[0]
-    assert annotated["SNAP_FAIL_REASON"].iloc[0] == "EXPANDED_SECTOR_ALLOWED_NODE"
+
+
+def test_candidate_direction_rejects_gstdm_link_crossing() -> None:
+    config = ProcessingConfig(boundary_endpoint_tolerance=200.0)
+    taz = gpd.GeoDataFrame(
+        {"N": [1]},
+        geometry=[Polygon([(0, -100), (1000, -100), (1000, 100), (0, 100)])],
+        crs="EPSG:2240",
+    )
+    centroids = gpd.GeoDataFrame({"N": [1]}, geometry=[Point(100, 0)], crs=taz.crs)
+    candidates = gpd.GeoDataFrame(
+        {
+            "N": [1],
+            "CC_PT": ["1_1"],
+            "ANGLE_DEG": [90.0],
+            "ANGLE_START": [45.0],
+            "ANGLE_END": [135.0],
+            "DENSITY": [1.0],
+            "DENS_RANK": [1],
+        },
+        geometry=[Point(1000, 0)],
+        crs=taz.crs,
+    )
+    nodes = gpd.GeoDataFrame(
+        {"NODE_ID": [10, 20], "MAJOR_LEVEL": [4, 4]},
+        geometry=[Point(900, 0), Point(400, 50)],
+        crs=taz.crs,
+    )
+    links = gpd.GeoDataFrame(
+        {"A": [30], "B": [31], "FUNC_CLASS": [4]},
+        geometry=[LineString([(500, -100), (500, 100)])],
+        crs=taz.crs,
+    )
+    annotated = match_candidates_to_nodes(
+        candidates, centroids, taz, nodes, config, links
+    )
+    assert annotated["MATCH_NODE_IDX"].iloc[0] == 1
+    assert annotated["SNAP_ALLOWED"].iloc[0]
 
 
 def test_node_major_level_uses_lowest_numeric_func_class() -> None:

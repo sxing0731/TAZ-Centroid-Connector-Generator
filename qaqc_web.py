@@ -19,6 +19,9 @@ from defaults import HERE_LINKS_PATH, ROOT, TAZ_PATH
 FEET_PER_MILE = 5280.0
 CONTEXT_MILES = 1.5
 CONTEXT_FEET = FEET_PER_MILE * CONTEXT_MILES
+MIN_CONNECTORS = 1
+MAX_CONNECTORS = 3
+MAX_OUTSIDE_FEET = 200.0
 
 
 def _id_text(value: object) -> str:
@@ -317,6 +320,29 @@ class QAQCDataStore:
         subset["geometry"] = subset.geometry.intersection(context)
         return subset[(~subset.geometry.is_empty) & subset.geometry.notna()]
 
+    def _validate_target(self, taz_id: str, node_id: str) -> tuple[object, LineString, float]:
+        node_row = self._node_lookup.loc[node_id]
+        if not bool(node_row["SNAP_ELIG"]):
+            raise ValueError(
+                f"Node {node_id} is not eligible; choose a non-major node with MAJOR_LEVEL 3/4/5"
+            )
+        centroid = self._centroid_lookup.loc[taz_id]
+        node = node_row.geometry
+        polygon = self._taz_lookup.loc[taz_id].geometry
+        connector = LineString([centroid, node])
+        outside_length = float(connector.difference(polygon).length)
+        if outside_length > MAX_OUTSIDE_FEET + 1e-6:
+            raise ValueError(
+                f"Connector would extend {outside_length:.1f} ft outside TAZ {taz_id}; maximum is {MAX_OUTSIDE_FEET:g} ft"
+            )
+        endpoint_zone = node.buffer(0.01)
+        link_indices = self.gstdm_links.sindex.query(connector, predicate="intersects")
+        for index in link_indices:
+            intersection = connector.intersection(self.gstdm_links.geometry.iloc[int(index)])
+            if not intersection.difference(endpoint_zone).is_empty:
+                raise ValueError("Connector would cross a GSTDM link before reaching the target node")
+        return node_row, connector, outside_length
+
     def save_edit(self, payload: dict) -> dict:
         cc_pt = str(payload.get("ccPt", ""))
         node_id = _id_text(payload.get("nodeId", ""))
@@ -325,21 +351,18 @@ class QAQCDataStore:
             raise ValueError("ccPt is required")
         if node_id not in self._node_lookup.index:
             raise ValueError(f"Node {node_id} not found")
-        node_row = self._node_lookup.loc[node_id]
-        if not bool(node_row["SNAP_ELIG"]):
-            raise ValueError(f"Node {node_id} is not eligible; only MAJOR_LEVEL 3/4/5 is allowed")
         matches = self.lines.index[self.lines["CC_PT"] == cc_pt].tolist()
         if not matches:
             raise ValueError(f"Connector {cc_pt} not found")
-        self._push_history()
         index = matches[0]
         taz_id = self.lines.at[index, "TAZ_ID_TEXT"]
+        node_row, connector, outside_length = self._validate_target(taz_id, node_id)
+        self._push_history()
         centroid = self._centroid_lookup.loc[taz_id]
         node = node_row.geometry
         polygon = self._taz_lookup.loc[taz_id].geometry
         boundary_point = self._selected_lookup.get(cc_pt, node)
         radial_line = LineString([centroid, boundary_point])
-        connector = LineString([centroid, node])
         self.lines.at[index, "geometry"] = connector
         self.lines.at[index, "CC_NODE"] = node_id
         self.lines.at[index, "NEAR_DIST"] = float(boundary_point.distance(node))
@@ -347,7 +370,8 @@ class QAQCDataStore:
         self.lines.at[index, "END_BND_DIST"] = float(node.distance(polygon.boundary))
         self.lines.at[index, "END_ON_BND"] = bool(self.lines.at[index, "END_BND_DIST"] <= 200.0)
         self.lines.at[index, "CROSSES_TAZ"] = bool(connector.difference(polygon).length > 1e-6)
-        self.lines.at[index, "OUTSIDE_LEN"] = float(connector.difference(polygon).length)
+        self.lines.at[index, "OUTSIDE_LEN"] = outside_length
+        self.lines.at[index, "CROSSES_GSTDM"] = False
         self.lines.at[index, "MAJOR_LEVEL"] = node_row["MAJOR_LEVEL"]
         self.lines.at[index, "MAJOR_INT"] = node_row["MAJOR_INT"]
         self.lines.at[index, "QC_STATUS"] = "edited"
@@ -366,17 +390,15 @@ class QAQCDataStore:
             raise ValueError(f"TAZ {taz_id} not found")
         if node_id not in self._node_lookup.index:
             raise ValueError(f"Node {node_id} not found")
-        node_row = self._node_lookup.loc[node_id]
-        if not bool(node_row["SNAP_ELIG"]):
-            raise ValueError(f"Node {node_id} is not eligible; only MAJOR_LEVEL 3/4/5 is allowed")
+        if int((self.lines["TAZ_ID_TEXT"] == taz_id).sum()) >= MAX_CONNECTORS:
+            raise ValueError(f"TAZ {taz_id} already has the maximum of {MAX_CONNECTORS} connectors")
 
+        node_row, connector, outside_length = self._validate_target(taz_id, node_id)
         self._push_history()
         centroid = self._centroid_lookup.loc[taz_id]
         node = node_row.geometry
         polygon = self._taz_lookup.loc[taz_id].geometry
-        connector = LineString([centroid, node])
         cc_pt = self._next_added_cc_pt(taz_id)
-        outside_length = float(connector.difference(polygon).length)
         boundary_distance = float(node.distance(polygon.boundary))
         template = {column: None for column in self.lines.columns if column != "geometry"}
         template.update(
@@ -401,6 +423,7 @@ class QAQCDataStore:
                 "END_ON_BND": boundary_distance <= 200.0,
                 "CROSSES_TAZ": outside_length > 1e-6,
                 "OUTSIDE_LEN": outside_length,
+                "CROSSES_GSTDM": False,
                 "QC_STATUS": "added",
                 "QC_NOTE": note,
                 "QC_TIME": datetime.now().isoformat(timespec="seconds"),
@@ -439,8 +462,10 @@ class QAQCDataStore:
         matches = self.lines.index[self.lines["CC_PT"] == cc_pt].tolist()
         if not matches:
             raise ValueError(f"Connector {cc_pt} not found")
-        self._push_history()
         taz_id = self.lines.at[matches[0], "TAZ_ID_TEXT"]
+        if int((self.lines["TAZ_ID_TEXT"] == taz_id).sum()) <= MIN_CONNECTORS:
+            raise ValueError(f"TAZ {taz_id} must keep at least {MIN_CONNECTORS} connector")
+        self._push_history()
         self.lines = self.lines.drop(index=matches).reset_index(drop=True)
         self._write_outputs()
         return {"ok": True, "tazId": taz_id, "ccPt": cc_pt, **self.history_state()}

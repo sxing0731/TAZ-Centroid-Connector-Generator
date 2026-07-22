@@ -1321,6 +1321,104 @@ function pointSegmentDistance(p, a, b) {
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
 
+function segmentIntersectionParameter(a, b, c, d) {
+  const rx = b[0] - a[0];
+  const ry = b[1] - a[1];
+  const sx = d[0] - c[0];
+  const sy = d[1] - c[1];
+  const denominator = rx * sy - ry * sx;
+  if (Math.abs(denominator) < 1e-9) return null;
+  const qx = c[0] - a[0];
+  const qy = c[1] - a[1];
+  const t = (qx * sy - qy * sx) / denominator;
+  const u = (qx * ry - qy * rx) / denominator;
+  return t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? t : null;
+}
+
+function segmentsMeetBeforeEndpoint(start, end, a, b) {
+  const t = segmentIntersectionParameter(start, end, a, b);
+  if (t != null) return t < 1 - 1e-8;
+  const rx = end[0] - start[0];
+  const ry = end[1] - start[1];
+  const lengthSquared = rx * rx + ry * ry;
+  if (!lengthSquared) return false;
+  const crossA = (a[0] - start[0]) * ry - (a[1] - start[1]) * rx;
+  const crossB = (b[0] - start[0]) * ry - (b[1] - start[1]) * rx;
+  if (Math.abs(crossA) > 1e-6 || Math.abs(crossB) > 1e-6) return false;
+  const ta = ((a[0] - start[0]) * rx + (a[1] - start[1]) * ry) / lengthSquared;
+  const tb = ((b[0] - start[0]) * rx + (b[1] - start[1]) * ry) / lengthSquared;
+  return Math.max(0, Math.min(ta, tb)) < Math.min(1 - 1e-8, Math.max(ta, tb));
+}
+
+function geometryLineSegments(geometry) {
+  if (!geometry) return [];
+  const lines = geometry.type === "LineString" ? [geometry.coordinates] : geometry.type === "MultiLineString" ? geometry.coordinates : [];
+  const segments = [];
+  for (const line of lines) {
+    for (let index = 1; index < line.length; index += 1) segments.push([line[index - 1], line[index]]);
+  }
+  return segments;
+}
+
+function geometryBoundarySegments(geometry) {
+  if (!geometry) return [];
+  const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.type === "MultiPolygon" ? geometry.coordinates : [];
+  const segments = [];
+  for (const polygon of polygons) {
+    for (const ring of polygon) {
+      for (let index = 1; index < ring.length; index += 1) segments.push([ring[index - 1], ring[index]]);
+    }
+  }
+  return segments;
+}
+
+function pointCoveredByGeometry(point, geometry) {
+  if (pointInGeometry(point, geometry)) return true;
+  return geometryBoundarySegments(geometry).some(([a, b]) => pointSegmentDistance(
+    { x: point[0], y: point[1] }, { x: a[0], y: a[1] }, { x: b[0], y: b[1] }
+  ) <= 0.01);
+}
+
+function segmentOutsideLength(start, end, geometry) {
+  const cuts = [0, 1];
+  for (const [a, b] of geometryBoundarySegments(geometry)) {
+    const t = segmentIntersectionParameter(start, end, a, b);
+    if (t != null) cuts.push(Math.max(0, Math.min(1, t)));
+  }
+  cuts.sort((a, b) => a - b);
+  const unique = cuts.filter((value, index) => index === 0 || Math.abs(value - cuts[index - 1]) > 1e-8);
+  const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+  let outside = 0;
+  for (let index = 1; index < unique.length; index += 1) {
+    const low = unique[index - 1];
+    const high = unique[index];
+    const mid = (low + high) / 2;
+    const point = [start[0] + (end[0] - start[0]) * mid, start[1] + (end[1] - start[1]) * mid];
+    if (!pointCoveredByGeometry(point, geometry)) outside += length * (high - low);
+  }
+  return outside;
+}
+
+function connectorCrossesGstdm(start, end) {
+  const bounds = { minX: Math.min(start[0], end[0]), maxX: Math.max(start[0], end[0]), minY: Math.min(start[1], end[1]), maxY: Math.max(start[1], end[1]) };
+  const links = querySpatialGrid(state.linkGrid, bounds).filter((link) => boundsIntersect(link._bounds, bounds));
+  for (const link of links) {
+    for (const [a, b] of geometryLineSegments(link.geom)) {
+      if (segmentsMeetBeforeEndpoint(start, end, a, b)) return true;
+    }
+  }
+  return false;
+}
+
+function connectorTargetValidation(node) {
+  if (!node?.eligible) return "Major node is locked. Choose a non-major node (MAJOR_LEVEL 3/4/5).";
+  const endpoint = [node.x, node.y];
+  const outsideLength = segmentOutsideLength(state.payload.centroid, endpoint, state.payload.taz);
+  if (outsideLength > 200.000001) return `Connector would extend ${outsideLength.toFixed(1)} ft outside the TAZ; maximum is 200 ft.`;
+  if (connectorCrossesGstdm(state.payload.centroid, endpoint)) return "Connector would cross a GSTDM link before reaching the target node.";
+  return "";
+}
+
 function findTazAt(pt) {
   const xy = unproject(pt);
   for (let index = state.data.tazs.length - 1; index >= 0; index -= 1) {
@@ -1370,8 +1468,9 @@ function applyEditToNode(node) {
     toast("Select a connector first.");
     return;
   }
-  if (!node?.eligible) {
-    toast("Major node is locked. Choose MAJOR_LEVEL 3/4/5.");
+  const validationError = connectorTargetValidation(node);
+  if (validationError) {
+    toast(validationError);
     return;
   }
   const tazId = state.payload.tazId;
@@ -1379,6 +1478,7 @@ function applyEditToNode(node) {
   const edit = {
     nodeId: node.id,
     majorLevel: node.majorLevel,
+    outsideLen: segmentOutsideLength(state.payload.centroid, [node.x, node.y], state.payload.taz),
     status: "edited",
     note: qs("qcNote").value,
     geom,
@@ -1445,6 +1545,10 @@ function deleteSelectedConnector() {
     return;
   }
   const tazId = state.payload.tazId;
+  if (state.payload.connectors.length <= 1) {
+    toast("Each TAZ must keep at least 1 connector.");
+    return;
+  }
   pushEditHistory();
   state.edits[tazId] ||= {};
   if (connector.status === "added" || connector.ccPt.includes("_ADD")) {
@@ -1519,6 +1623,10 @@ function saveEdit() {
 }
 
 function toggleAddMode() {
+  if (!state.addMode && state.payload?.connectors.length >= 3) {
+    toast("Each TAZ can have at most 3 connectors.");
+    return;
+  }
   state.addMode = !state.addMode;
   updateAddModeUi();
   toast(state.addMode ? "Tap an eligible node to add CC." : "Add CC off.");
@@ -1531,8 +1639,13 @@ function updateAddModeUi() {
 }
 
 function addConnector(node) {
-  if (!node.eligible) {
-    toast("Cannot add CC to major node.");
+  if (state.payload.connectors.length >= 3) {
+    toast("Each TAZ can have at most 3 connectors.");
+    return;
+  }
+  const validationError = connectorTargetValidation(node);
+  if (validationError) {
+    toast(validationError);
     return;
   }
   const tazId = state.payload.tazId;
@@ -1542,7 +1655,7 @@ function addConnector(node) {
     ccPt: `${tazId}_ADD${count}`,
     nodeId: node.id,
     majorLevel: node.majorLevel,
-    outsideLen: 0,
+    outsideLen: segmentOutsideLength(state.payload.centroid, [node.x, node.y], state.payload.taz),
     lineNodeDist: 0,
     status: "added",
     geom: { type: "LineString", coordinates: [state.payload.centroid, [node.x, node.y]] },

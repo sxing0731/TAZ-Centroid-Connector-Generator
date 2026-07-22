@@ -176,6 +176,23 @@ def _major_intersection_flag(level: object, config: ProcessingConfig) -> str:
     return "Y" if pd.notna(level) and int(level) <= config.blocked_major_level else "N"
 
 
+def connector_crosses_gstdm_links(
+    connector: LineString,
+    endpoint: Point,
+    link_tree: STRtree | None,
+    link_geometries: list,
+) -> bool:
+    """Return True when a connector meets a GSTDM link away from its endpoint."""
+    if link_tree is None:
+        return False
+    endpoint_zone = endpoint.buffer(0.01)
+    for raw_index in link_tree.query(connector, predicate="intersects"):
+        intersection = connector.intersection(link_geometries[int(raw_index)])
+        if not intersection.difference(endpoint_zone).is_empty:
+            return True
+    return False
+
+
 def attach_node_major_levels(
     nodes: gpd.GeoDataFrame,
     gstdm_links: gpd.GeoDataFrame,
@@ -218,13 +235,13 @@ def match_candidates_to_nodes(
     taz: gpd.GeoDataFrame,
     nodes: gpd.GeoDataFrame,
     config: ProcessingConfig,
+    gstdm_links: gpd.GeoDataFrame | None = None,
 ) -> gpd.GeoDataFrame:
     """Match each candidate direction to the nearest allowed GSTDM node.
 
-    The primary match uses allowed nodes near the parent TAZ boundary and inside
-    the candidate sector. If that fails, the search expands outward from the
-    sector endpoint while preserving the sector direction before falling back to
-    the nearest allowed node.
+    Eligible nodes must be non-major, lie inside the TAZ or produce no more than
+    the configured outside-TAZ connector length, and must not make the connector
+    cross a GSTDM link before reaching its endpoint.
     """
     centroid_lookup = centroids.set_index("N").geometry
     polygon_lookup = taz.set_index(config.fields.taz_id).geometry
@@ -236,13 +253,13 @@ def match_candidates_to_nodes(
         else [_major_intersection_flag(level, config) for level in major_levels]
     )
     node_tree = STRtree(node_geometries) if node_geometries else None
+    link_geometries = list(gstdm_links.geometry) if gstdm_links is not None else []
+    link_tree = STRtree(link_geometries) if link_geometries else None
     allowed_indices = [
         index
         for index, level in enumerate(major_levels)
         if _snap_level_allowed(level, config)
     ]
-    allowed_geometries = [node_geometries[index] for index in allowed_indices]
-    allowed_tree = STRtree(allowed_geometries) if allowed_geometries else None
     matched_node_indices: list[int] = []
     matched_candidate_distances: list[float] = []
     matched_line_distances: list[float] = []
@@ -270,6 +287,7 @@ def match_candidates_to_nodes(
     def choose_best_node(
         row,
         center: Point,
+        polygon,
         candidate_indices: list[tuple[int, float]],
         require_sector: bool,
         enforce_snap_distance: bool,
@@ -280,6 +298,14 @@ def match_candidates_to_nodes(
         best: tuple[float, float, float, int] | None = None
         for index, boundary_distance in candidate_indices:
             node_geometry = node_geometries[index]
+            connector = LineString([center, node_geometry])
+            outside_length = float(connector.difference(polygon).length)
+            if outside_length > config.boundary_endpoint_tolerance + 1e-6:
+                continue
+            if connector_crosses_gstdm_links(
+                connector, node_geometry, link_tree, link_geometries
+            ):
+                continue
             node_angle = bearing_degrees(center, node_geometry)
             if (
                 require_sector
@@ -301,48 +327,6 @@ def match_candidates_to_nodes(
                 best = key
         return best
 
-    def choose_nearest_allowed_node(row, center: Point, boundary) -> tuple[float, float, float, int] | None:
-        if allowed_tree is None:
-            return None
-        local_index = int(allowed_tree.nearest(row.geometry))
-        node_index = allowed_indices[local_index]
-        node_geometry = node_geometries[node_index]
-        radial_line = LineString([center, row.geometry])
-        return (
-            float(radial_line.distance(node_geometry)),
-            float(row.geometry.distance(node_geometry)),
-            float(node_geometry.distance(boundary)),
-            node_index,
-        )
-
-    def choose_expanded_sector_node(row, center: Point, boundary) -> tuple[float, float, float, int] | None:
-        if allowed_tree is None:
-            return None
-        base_radius = max(config.boundary_endpoint_tolerance * 2.0, 1000.0)
-        max_radius = max(config.boundary_endpoint_tolerance * 16.0, 3.0 * 5280.0)
-        seen: set[int] = set()
-        radius = base_radius
-        while radius <= max_radius:
-            local_indices = [int(index) for index in allowed_tree.query(row.geometry.buffer(radius), predicate="intersects")]
-            candidate_indices: list[tuple[int, float]] = []
-            for local_index in local_indices:
-                if local_index in seen:
-                    continue
-                seen.add(local_index)
-                node_index = allowed_indices[local_index]
-                candidate_indices.append((node_index, float(node_geometries[node_index].distance(boundary))))
-            best = choose_best_node(
-                row,
-                center,
-                candidate_indices,
-                require_sector=True,
-                enforce_snap_distance=False,
-            )
-            if best is not None:
-                return best
-            radius *= 2.0
-        return None
-
     for taz_id, group in candidates.groupby("N", sort=False):
         if node_tree is None:
             for _ in group.itertuples():
@@ -351,7 +335,7 @@ def match_candidates_to_nodes(
 
         polygon = polygon_lookup.loc[taz_id]
         boundary = polygon.boundary
-        query_zone = boundary.buffer(config.boundary_endpoint_tolerance)
+        query_zone = polygon.buffer(config.boundary_endpoint_tolerance)
         nearby_indices = [
             int(index)
             for index in node_tree.query(query_zone, predicate="intersects")
@@ -361,8 +345,7 @@ def match_candidates_to_nodes(
             if not level_is_allowed(index):
                 continue
             boundary_distance = float(node_geometries[index].distance(boundary))
-            if boundary_distance <= config.boundary_endpoint_tolerance:
-                nearby_allowed.append((index, boundary_distance))
+            nearby_allowed.append((index, boundary_distance))
 
         if not nearby_allowed and not allowed_indices:
             for _ in group.itertuples():
@@ -374,6 +357,7 @@ def match_candidates_to_nodes(
             best = choose_best_node(
                 row,
                 center,
+                polygon,
                 nearby_allowed,
                 require_sector=True,
                 enforce_snap_distance=True,
@@ -381,17 +365,19 @@ def match_candidates_to_nodes(
             used_fallback = False
             fallback_reason = ""
             if best is None:
-                best = choose_expanded_sector_node(row, center, boundary)
+                best = choose_best_node(
+                    row,
+                    center,
+                    polygon,
+                    nearby_allowed,
+                    require_sector=False,
+                    enforce_snap_distance=True,
+                )
                 if best is not None:
                     used_fallback = True
-                    fallback_reason = "EXPANDED_SECTOR_ALLOWED_NODE"
+                    fallback_reason = "FALLBACK_NON_MAJOR_NODE_WITHIN_LIMITS"
             if best is None:
-                best = choose_nearest_allowed_node(row, center, boundary)
-                if best is not None:
-                    used_fallback = True
-                    fallback_reason = "FALLBACK_NEAREST_ALLOWED_NODE"
-            if best is None:
-                append_no_match("NO_ALLOWED_NODE")
+                append_no_match("NO_NON_MAJOR_NODE_WITHIN_LIMITS")
                 continue
             line_distance, candidate_distance, boundary_distance, node_index = best
             matched_node_indices.append(node_index)
@@ -436,6 +422,7 @@ def snap_candidates_to_nodes(
     taz: gpd.GeoDataFrame,
     config: ProcessingConfig,
     log: LogFn,
+    gstdm_links: gpd.GeoDataFrame | None = None,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """Snap selected boundary points to nearest nodes using an STRtree."""
     node_geometries = list(nodes.geometry)
@@ -448,6 +435,8 @@ def snap_candidates_to_nodes(
         else [_major_intersection_flag(level, config) for level in major_levels]
     )
     polygon_lookup = taz.set_index(config.fields.taz_id).geometry
+    link_geometries = list(gstdm_links.geometry) if gstdm_links is not None else []
+    link_tree = STRtree(link_geometries) if link_geometries else None
     point_records: list[dict[str, object]] = []
     line_records: list[dict[str, object]] = []
 
@@ -482,6 +471,14 @@ def snap_candidates_to_nodes(
         polygon = polygon_lookup.loc[row.N]
         line = LineString([row.CENTROID_GEOM, node])
         outside_length = float(line.difference(polygon).length)
+        crosses_gstdm = connector_crosses_gstdm_links(
+            line, node, link_tree, link_geometries
+        )
+        snap_ok = (
+            snap_ok
+            and outside_length <= config.boundary_endpoint_tolerance + 1e-6
+            and not crosses_gstdm
+        )
         boundary_distance = float(node.distance(polygon.boundary))
         common = {
             "N": row.N,
@@ -504,6 +501,7 @@ def snap_candidates_to_nodes(
             "END_ON_BND": boundary_distance <= config.boundary_endpoint_tolerance,
             "CROSSES_TAZ": outside_length > 1e-6,
             "OUTSIDE_LEN": outside_length,
+            "CROSSES_GSTDM": crosses_gstdm,
         }
         point_records.append({**common, "geometry": node})
         if snap_ok:
@@ -525,7 +523,7 @@ def snap_candidates_to_nodes(
         "ANGLE_DEG", "NEAR_DIST", "SNAP_OK", "LINE_NODE_DIST",
         "MATCH_BND_DIST", "MAJOR_LEVEL", "MAJOR_INT", "SNAP_ALLOWED",
         "SNAP_FAIL_REASON", "END_BND_DIST", "END_ON_BND", "CROSSES_TAZ",
-        "OUTSIDE_LEN", "geometry",
+        "OUTSIDE_LEN", "CROSSES_GSTDM", "geometry",
     ]
     snapped = gpd.GeoDataFrame(point_records, columns=columns, geometry="geometry", crs=nodes.crs)
     lines = gpd.GeoDataFrame(line_records, columns=columns, geometry="geometry", crs=nodes.crs)

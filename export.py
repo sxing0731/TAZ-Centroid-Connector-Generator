@@ -32,6 +32,7 @@ OUTPUT_FIELDS = [
     "END_ON_BND",
     "CROSSES_TAZ",
     "OUTSIDE_LEN",
+    "CROSSES_GSTDM",
 ]
 
 FIELD_DICTIONARY = [
@@ -48,12 +49,13 @@ FIELD_DICTIONARY = [
     ("MATCH_BND_DIST", "Distance from candidate matched node to the parent TAZ boundary"),
     ("MAJOR_LEVEL", "Highest GSTDM functional class touching the snapped node; lower numeric values are more major"),
     ("MAJOR_INT", "Y when MAJOR_LEVEL is 1 or 2; N for 3, 4, 5, or missing"),
-    ("SNAP_ALLOWED", "Whether the snapped node is MAJOR_LEVEL 3/4/5 and passes sector/boundary rules or fallback"),
+    ("SNAP_ALLOWED", "Whether the snapped non-major node passes the outside-TAZ and GSTDM-link crossing rules"),
     ("SNAP_FAIL_REASON", "Reason a candidate could not be matched to an eligible snap node"),
     ("END_BND_DIST", "Distance from snapped node to the parent TAZ boundary"),
     ("END_ON_BND", "Whether snapped endpoint is within the boundary tolerance"),
     ("CROSSES_TAZ", "Whether any final connector segment lies outside its parent TAZ"),
     ("OUTSIDE_LEN", "Length of final connector lying outside its parent TAZ"),
+    ("CROSSES_GSTDM", "Whether the connector intersects a GSTDM link before its target-node endpoint"),
 ]
 
 
