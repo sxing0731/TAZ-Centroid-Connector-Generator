@@ -174,6 +174,16 @@ def run_processing(
         raise RuntimeError(
             f"{gstdm_crossing_count} final connectors cross GSTDM links."
         )
+    shared_nodes = (
+        final_lines.groupby("CC_NODE")["N"].nunique()
+        if not final_lines.empty
+        else {}
+    )
+    cross_taz_shared_count = int((shared_nodes > 1).sum()) if len(shared_nodes) else 0
+    if cross_taz_shared_count:
+        raise RuntimeError(
+            f"{cross_taz_shared_count} GSTDM nodes are used by connectors from multiple TAZs."
+        )
 
     progress(82, "Building candidate connector lines")
     candidate_lines = create_candidate_lines(candidate_scores, centroids)

@@ -81,18 +81,22 @@ the desired layer is not the first layer.
    non-major node, but it never relaxes the 200-ft or GSTDM-crossing limits.
 7. Rank snap-eligible sectors by HERE road-link density and enforce angular
    separation so the chosen directions are not clustered.
-8. Relax the angle threshold in 5-degree increments when needed to reach the
+8. Reserve every selected GSTDM target node to a single TAZ. If two TAZs prefer
+   the same node, keep it for the TAZ with fewer valid alternatives and redirect
+   the other TAZ to its next nearby candidate that satisfies every hard rule.
+9. Relax the angle threshold in 5-degree increments when needed to reach the
    minimum of 1 connector; select no more than 3 connectors per TAZ.
-9. Snap selected candidates to the matched GSTDM Master NODE.
-10. Create straight connector lines from the interior centroid to the snapped
+10. Snap selected candidates to the matched GSTDM Master NODE.
+11. Create straight connector lines from the interior centroid to the snapped
    node.
-11. Reject any connector with more than 200 ft outside its parent TAZ or any
+12. Reject any connector with more than 200 ft outside its parent TAZ or any
     intersection with a GSTDM LINK away from the target endpoint. Allowed
     outside segments remain documented in `CROSSES_TAZ` and `OUTSIDE_LEN`.
-12. Flag TAZs with no eligible sector snap nodes or fewer than the configured
+13. Reject output in which a GSTDM target node is shared by different TAZs.
+14. Flag TAZs with no eligible sector snap nodes or fewer than the configured
     minimum connector count. TAZs below the target count still keep
     `SNAP_ISSUE = BELOW_TARGET_CONNECTORS` for review, but `SNAP_FLAG = N`.
-13. Export GIS layers and tables, including the GSTDM LINKS display layer.
+15. Export GIS layers and tables, including the GSTDM LINKS display layer.
 
 All distances are interpreted in source-CRS units, expected to be feet.
 

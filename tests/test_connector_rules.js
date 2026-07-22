@@ -35,6 +35,13 @@ assert.match(
   rules.connectorTargetValidation({ eligible: false, x: 900, y: 500 }),
   /non-major node/
 );
+state.globalConnectors = [{ tazId: "2", nodeId: "77" }];
+state.payload.tazId = "1";
+assert.match(
+  rules.connectorTargetValidation({ id: "77", eligible: true, x: 900, y: 500 }),
+  /already used by TAZ 2/
+);
+state.globalConnectors = [];
 
 state.linkGrid = [{
   _bounds: { minX: 800, maxX: 800, minY: 0, maxY: 1000 },

@@ -497,6 +497,7 @@ def snap_candidates_to_nodes(
             "SNAP_ALLOWED": bool(level_allowed and match_allowed),
             "SNAP_FAIL_REASON": getattr(row, "SNAP_FAIL_REASON", ""),
             "SNAP_FALLBACK": bool(getattr(row, "SNAP_FALLBACK", False)),
+            "NODE_CONFLICTS_AVOIDED": int(getattr(row, "NODE_CONFLICTS_AVOIDED", 0)),
             "END_BND_DIST": boundary_distance,
             "END_ON_BND": boundary_distance <= config.boundary_endpoint_tolerance,
             "CROSSES_TAZ": outside_length > 1e-6,
@@ -522,7 +523,7 @@ def snap_candidates_to_nodes(
         "N", "CC_PT", "SECTOR_ID", "CC_NODE", "DENSITY", "DENS_RANK",
         "ANGLE_DEG", "NEAR_DIST", "SNAP_OK", "LINE_NODE_DIST",
         "MATCH_BND_DIST", "MAJOR_LEVEL", "MAJOR_INT", "SNAP_ALLOWED",
-        "SNAP_FAIL_REASON", "END_BND_DIST", "END_ON_BND", "CROSSES_TAZ",
+        "SNAP_FAIL_REASON", "NODE_CONFLICTS_AVOIDED", "END_BND_DIST", "END_ON_BND", "CROSSES_TAZ",
         "OUTSIDE_LEN", "CROSSES_GSTDM", "geometry",
     ]
     snapped = gpd.GeoDataFrame(point_records, columns=columns, geometry="geometry", crs=nodes.crs)

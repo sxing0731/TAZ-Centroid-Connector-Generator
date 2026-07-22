@@ -104,6 +104,26 @@ def test_selection_finds_larger_angularly_separated_set() -> None:
     assert set(selected["CC_PT"]) == {"b", "c", "e"}
 
 
+def test_selection_reserves_each_node_to_one_taz() -> None:
+    candidates = gpd.GeoDataFrame(
+        {
+            "N": [1, 1, 2],
+            "CC_PT": ["1_shared", "1_alt", "2_shared"],
+            "ANGLE_DEG": [90.0, 180.0, 270.0],
+            "DENSITY": [100.0, 80.0, 90.0],
+            "SNAP_ALLOWED": [True, True, True],
+            "MATCH_NODE_IDX": [10, 11, 10],
+        },
+        geometry=[Point(1, 0), Point(0, -1), Point(-1, 0)],
+        crs="EPSG:2240",
+    )
+    config = ProcessingConfig(target_connector_count=1, minimum_connector_count=1)
+    selected = select_connectors(candidates, config, silent_log)
+    chosen = selected.set_index("N")["MATCH_NODE_IDX"].to_dict()
+    assert chosen == {1: 11, 2: 10}
+    assert selected.groupby("MATCH_NODE_IDX")["N"].nunique().max() == 1
+
+
 def test_candidate_direction_matches_nearest_node_to_radial_line() -> None:
     taz = gpd.GeoDataFrame(
         {"N": [1]},

@@ -42,6 +42,8 @@ Only nodes above the major-intersection cutoff are valid snap targets:
 - A connector may extend outside its TAZ by at most 200 ft.
 - A connector may meet a GSTDM LINK only at its target-node endpoint; crossing
   another GSTDM LINK is blocked.
+- A GSTDM target node may belong to connectors from only one TAZ. If another
+  TAZ already uses that node, choose a nearby different eligible node.
 
 Workflow:
 

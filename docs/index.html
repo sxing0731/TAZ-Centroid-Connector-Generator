@@ -173,7 +173,8 @@
           <p>
             The number of CCs is somewhat subjective and depends on the size and shape of the TAZ. Smaller TAZs
             usually have 1 to 2 CCs, while larger TAZs may have 3. Every TAZ must keep 1 to 3 CCs. CCs cannot extend
-            more than 200 ft outside the TAZ or cross a GSTDM link before reaching the target node. They should avoid connecting
+            more than 200 ft outside the TAZ or cross a GSTDM link before reaching the target node. A GSTDM target node
+            can be used by only one TAZ; if another TAZ already uses it, choose a nearby different node. CCs should avoid connecting
             directly to freeways, major arterials, or intersections. These rules have already been built into the
             program, so the main task is to human-review the generated results and make corrections where needed.
             The basemap can be turned on to help review whether the connector location makes sense.
@@ -218,7 +219,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
     <script src="cc-file-loader.js?v=20260721-all-data"></script>
-    <script src="app.js?v=20260722-connector-rules"></script>
+    <script src="app.js?v=20260722-node-exclusivity"></script>
     <script>
       (() => {
         const showInstructions = () => document.getElementById("instructionsPanel")?.classList.remove("hidden");

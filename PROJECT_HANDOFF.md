@@ -33,11 +33,14 @@ centroid connectors for TAZ polygons without ArcGIS Pro or ArcPy.
    `MAJOR_LEVEL <= 2`; only non-major levels 3/4/5 can be used as snap nodes.
    A connector may have at most 200 ft outside its TAZ and cannot cross a GSTDM
    LINK before reaching the target-node endpoint. These limits are never relaxed.
-10. Final connectors are straight lines from the interior centroid to the snapped
+10. A GSTDM target node may be used by only one TAZ. When TAZs compete for the
+    same node, the TAZ with more valid alternatives is redirected to its next
+    nearby fully valid node.
+11. Final connectors are straight lines from the interior centroid to the snapped
    GSTDM node.
-11. Keep between 1 and 3 connectors per TAZ. Flag a TAZ only when no valid
+12. Keep between 1 and 3 connectors per TAZ. Flag a TAZ only when no valid
     connector can satisfy all hard rules.
-12. The output TAZ number field is `N`.
+13. The output TAZ number field is `N`.
 
 Corner avoidance and major-intersection avoidance are no longer active rules.
 Barrier-layer rejection was also dropped.

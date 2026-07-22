@@ -326,6 +326,22 @@ class QAQCDataStore:
             raise ValueError(
                 f"Node {node_id} is not eligible; choose a non-major node with MAJOR_LEVEL 3/4/5"
             )
+        other_taz_ids = sorted(
+            {
+                str(value)
+                for value in self.lines.loc[
+                    (self.lines["CC_NODE"].map(_id_text) == node_id)
+                    & (self.lines["TAZ_ID_TEXT"] != taz_id),
+                    "TAZ_ID_TEXT",
+                ]
+                if str(value)
+            }
+        )
+        if other_taz_ids:
+            raise ValueError(
+                f"Node {node_id} is already used by TAZ {', '.join(other_taz_ids)}; "
+                "choose a nearby different node"
+            )
         centroid = self._centroid_lookup.loc[taz_id]
         node = node_row.geometry
         polygon = self._taz_lookup.loc[taz_id].geometry

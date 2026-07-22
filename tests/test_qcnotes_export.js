@@ -35,6 +35,22 @@ async function main() {
   const csv = await csvBlob.text();
   assert.match(csv, /^A,B,QC_NOTES\r\n/);
   assert.match(csv, /116,66819,"检查, avoid ""ramp"""/);
+  const conflictStart = appSource.indexOf("function findCrossTazNodeConflicts");
+  const conflictEnd = appSource.indexOf("async function exportFinalCc", conflictStart);
+  assert.ok(conflictStart >= 0 && conflictEnd > conflictStart, "cross-TAZ export audit should be present");
+  const conflictFactory = new Function(
+    `${appSource.slice(conflictStart, conflictEnd)}; return findCrossTazNodeConflicts;`
+  );
+  const findConflicts = conflictFactory();
+  assert.deepEqual(
+    findConflicts([
+      { A: "1", B: "77" },
+      { A: "2", B: "77" },
+      { A: "2", B: "88" },
+      { A: "2", B: "88" },
+    ]),
+    [{ nodeId: "77", tazIds: ["1", "2"] }]
+  );
   console.log("QCNOTES DBF and CSV export tests passed");
 }
 

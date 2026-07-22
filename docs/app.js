@@ -1410,8 +1410,21 @@ function connectorCrossesGstdm(start, end) {
   return false;
 }
 
+function crossTazNodeOwner(nodeId) {
+  const cleanNodeId = String(nodeId ?? "").replace(/\.0+$/, "");
+  const currentTazId = String(state.payload?.tazId ?? "");
+  for (const connector of state.globalConnectors || []) {
+    if (String(connector.nodeId ?? "").replace(/\.0+$/, "") !== cleanNodeId) continue;
+    const ownerTazId = String(connector.tazId ?? "");
+    if (ownerTazId && ownerTazId !== currentTazId) return ownerTazId;
+  }
+  return "";
+}
+
 function connectorTargetValidation(node) {
   if (!node?.eligible) return "Major node is locked. Choose a non-major node (MAJOR_LEVEL 3/4/5).";
+  const ownerTazId = crossTazNodeOwner(node.id);
+  if (ownerTazId) return `Node ${node.id} is already used by TAZ ${ownerTazId}. Choose a nearby different node.`;
   const endpoint = [node.x, node.y];
   const outsideLength = segmentOutsideLength(state.payload.centroid, endpoint, state.payload.taz);
   if (outsideLength > 200.000001) return `Connector would extend ${outsideLength.toFixed(1)} ft outside the TAZ; maximum is 200 ft.`;
@@ -1696,14 +1709,36 @@ async function allConnectorsForExport() {
   return rows;
 }
 
+function findCrossTazNodeConflicts(rows) {
+  const owners = new Map();
+  for (const row of rows) {
+    const nodeId = String(row.B ?? "").replace(/\.0+$/, "");
+    const tazId = String(row.A ?? "").replace(/\.0+$/, "");
+    if (!nodeId || !tazId) continue;
+    if (!owners.has(nodeId)) owners.set(nodeId, new Set());
+    owners.get(nodeId).add(tazId);
+  }
+  return Array.from(owners.entries())
+    .filter(([, tazIds]) => tazIds.size > 1)
+    .map(([nodeId, tazIds]) => ({ nodeId, tazIds: Array.from(tazIds).sort() }));
+}
+
 async function exportFinalCc() {
   const format = document.querySelector('input[name="exportFormat"]:checked')?.value || "dbf";
   const includeNotes = qs("includeQcNotes").checked;
   hideExportDialog();
   toast(`Preparing final CC ${format.toUpperCase()}${includeNotes ? " and QCNOTES" : ""}...`);
+  const sourceRows = await allConnectorsForExport();
+  const conflicts = findCrossTazNodeConflicts(sourceRows);
+  if (conflicts.length) {
+    const examples = conflicts.slice(0, 4).map((item) => `${item.nodeId}: TAZ ${item.tazIds.join("/")}`).join("; ");
+    toast(`Resolve ${conflicts.length} cross-TAZ shared node(s) before export.`);
+    status(`Final CC export blocked. Shared nodes: ${examples}${conflicts.length > 4 ? "; ..." : ""}`);
+    return;
+  }
   const rows = [];
   const noteRows = [];
-  for (const r of await allConnectorsForExport()) {
+  for (const r of sourceRows) {
     rows.push(r, { A: r.B, B: r.A, FCLASS: 32 });
     noteRows.push(
       { A: r.A, B: r.B, QC_NOTES: r.QC_NOTES },

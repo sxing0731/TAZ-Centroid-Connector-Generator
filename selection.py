@@ -61,13 +61,42 @@ def select_connectors(
     config: ProcessingConfig,
     log: LogFn,
 ) -> gpd.GeoDataFrame:
-    """Select high-density candidates while preserving angular separation."""
+    """Select candidates while reserving each target node to one TAZ."""
     selected_parts: list[gpd.GeoDataFrame] = []
+    has_node_matches = "MATCH_NODE_IDX" in candidates.columns
+    grouped: list[tuple[int, str, object, gpd.GeoDataFrame]] = []
     for taz_id, group in candidates.groupby("N", sort=False):
+        eligible_mask = group.get("SNAP_ALLOWED", pd.Series(True, index=group.index)).fillna(False).astype(bool)
+        scarcity = (
+            int(group.loc[eligible_mask, "MATCH_NODE_IDX"].nunique())
+            if has_node_matches
+            else int(eligible_mask.sum())
+        )
+        grouped.append((scarcity, str(taz_id), taz_id, group))
+
+    reserved_nodes: dict[int, object] = {}
+    for _, _, taz_id, group in sorted(grouped, key=lambda item: (item[0], item[1])):
         group = group.copy()
         if "SNAP_ALLOWED" not in group:
             group["SNAP_ALLOWED"] = True
         eligible = group[group["SNAP_ALLOWED"].fillna(False).astype(bool)].copy()
+        conflict_count = 0
+        if has_node_matches and not eligible.empty:
+            conflict_mask = eligible["MATCH_NODE_IDX"].map(
+                lambda node_index: int(node_index) in reserved_nodes
+                and reserved_nodes[int(node_index)] != taz_id
+            )
+            conflict_count = int(conflict_mask.sum())
+            eligible = eligible[~conflict_mask].copy()
+            eligible = eligible.sort_values(
+                ["DENSITY", "CC_PT"], ascending=[False, True]
+            ).drop_duplicates("MATCH_NODE_IDX", keep="first")
+            if conflict_count:
+                log(
+                    f"TAZ {taz_id}: redirected around {conflict_count} candidate(s) "
+                    "whose GSTDM node is reserved by another TAZ.",
+                    20,
+                )
         rejected_count = len(group) - len(eligible)
         if rejected_count:
             log(
@@ -104,6 +133,10 @@ def select_connectors(
             )
         chosen = ranked.loc[indices].copy()
         chosen["ANGLE_THRESHOLD"] = threshold
+        chosen["NODE_CONFLICTS_AVOIDED"] = conflict_count
+        if has_node_matches:
+            for node_index in chosen["MATCH_NODE_IDX"]:
+                reserved_nodes[int(node_index)] = taz_id
         selected_parts.append(chosen)
 
     if not selected_parts:
