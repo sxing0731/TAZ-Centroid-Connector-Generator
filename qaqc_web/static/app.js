@@ -21,11 +21,13 @@ const state = {
   pinchGesture: null,
   lastTapAt: 0,
   basemap: "road",
-  tileCache: new Map(),
+  leafletMap: null,
+  leafletLayers: {},
+  activeLeafletLayer: null,
   drawPending: false,
-  tileRedrawTimer: null,
   contextConnector: null,
   hoverFeature: null,
+  hoveredNodeId: null,
   layers: {
     allTaz: true,
     context: true,
@@ -38,7 +40,6 @@ const state = {
 
 const SOURCE_PROJ =
   "+proj=lcc +lat_0=0 +lon_0=-83.5 +lat_1=31.4166666666667 +lat_2=34.2833333333333 +x_0=0 +y_0=0 +datum=NAD83 +units=us-ft +no_defs +type=crs";
-const FT_TO_M = 0.3048006096012192;
 
 function qs(id) {
   return document.getElementById(id);
@@ -55,6 +56,85 @@ function setStatus(text) {
   qs("statusText").textContent = text;
 }
 
+function initLeafletMap() {
+  if (!window.L || !window.proj4) {
+    setStatus("Leaflet or projection library did not load. Vector layers remain available.");
+    return;
+  }
+  state.leafletMap = L.map("leafletMap", {
+    attributionControl: false,
+    zoomControl: false,
+    dragging: false,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    touchZoom: false,
+    boxZoom: false,
+    keyboard: false,
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
+    zoomSnap: 0.25,
+  }).setView([33.75, -84.4], 8);
+  state.leafletLayers = {
+    road: L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxNativeZoom: 19,
+      maxZoom: 20,
+      keepBuffer: 4,
+      updateWhenIdle: false,
+      attribution: "&copy; OpenStreetMap contributors",
+    }),
+    satellite: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxNativeZoom: 18,
+      maxZoom: 20,
+      keepBuffer: 4,
+      updateWhenIdle: false,
+      attribution: "Tiles &copy; Esri",
+    }),
+  };
+  state.leafletMap.on("move zoom resize", () => {
+    syncViewFromLeaflet();
+    scheduleDraw();
+  });
+  updateLeafletBasemap();
+}
+
+function updateLeafletBasemap() {
+  if (!state.leafletMap) return;
+  if (state.activeLeafletLayer) state.leafletMap.removeLayer(state.activeLeafletLayer);
+  state.activeLeafletLayer = state.leafletLayers[state.basemap] || null;
+  if (state.activeLeafletLayer) state.activeLeafletLayer.addTo(state.leafletMap);
+  qs("leafletMap").style.background = state.basemap === "satellite" ? "#d5d8d2" : "#f6f8fb";
+}
+
+function syncLeafletToView() {
+  if (!state.leafletMap || !state.view) return;
+  state.leafletMap.invalidateSize(false);
+  const corners = [
+    [state.view.minX, state.view.minY],
+    [state.view.minX, state.view.maxY],
+    [state.view.maxX, state.view.minY],
+    [state.view.maxX, state.view.maxY],
+  ].map(sourceToLonLat).map(([lon, lat]) => L.latLng(lat, lon));
+  state.leafletMap.fitBounds(L.latLngBounds(corners), { animate: false, padding: [0, 0] });
+  syncViewFromLeaflet();
+}
+
+function syncViewFromLeaflet() {
+  if (!state.leafletMap || !state.payload) return;
+  const corners = [
+    { x: 0, y: 0 },
+    { x: state.width, y: 0 },
+    { x: 0, y: state.height },
+    { x: state.width, y: state.height },
+  ].map(unproject);
+  state.view = {
+    minX: Math.min(...corners.map((point) => point[0])),
+    maxX: Math.max(...corners.map((point) => point[0])),
+    minY: Math.min(...corners.map((point) => point[1])),
+    maxY: Math.max(...corners.map((point) => point[1])),
+  };
+}
+
 function toast(text) {
   const el = qs("toast");
   el.textContent = text;
@@ -67,8 +147,10 @@ async function init() {
   state.canvas = qs("mapCanvas");
   state.ctx = state.canvas.getContext("2d");
   resizeCanvas();
+  initLeafletMap();
   window.addEventListener("resize", () => {
     resizeCanvas();
+    state.leafletMap?.invalidateSize(false);
     scheduleDraw();
   });
   bindCanvas();
@@ -142,6 +224,7 @@ function bindControls() {
   qs("queueFilter").addEventListener("change", renderQueue);
   qs("basemapSelect").addEventListener("change", () => {
     state.basemap = qs("basemapSelect").value;
+    updateLeafletBasemap();
     updateBasemapAttribution();
     scheduleDraw();
   });
@@ -210,17 +293,18 @@ function bindCanvas() {
       event.preventDefault();
       return;
     }
+    const nodeHitRadius = event.pointerType === "touch" ? 30 : state.selectedConnector ? 18 : 12;
+    const node = findNodeAt(pt, nodeHitRadius);
+    if (node && state.addMode) {
+      addConnectorToNode(node);
+      event.preventDefault();
+      return;
+    }
     const connector = findConnectorAt(pt);
     if (connector) {
       state.addMode = false;
       updateAddModeUi();
       selectConnector(connector);
-      event.preventDefault();
-      return;
-    }
-    const node = findNodeAt(pt);
-    if (node && state.addMode) {
-      addConnectorToNode(node);
       event.preventDefault();
       return;
     }
@@ -270,7 +354,10 @@ function bindCanvas() {
     }
     if (event.pointerType === "mouse") updateHover(pt);
   });
-  state.canvas.addEventListener("mouseleave", hideFeatureTooltip);
+  state.canvas.addEventListener("mouseleave", () => {
+    hideFeatureTooltip();
+    updateHoveredCandidateNode(null);
+  });
   state.canvas.addEventListener("pointerup", finishPointerGesture);
   state.canvas.addEventListener("pointercancel", finishPointerGesture);
 }
@@ -379,13 +466,14 @@ function renderQueue({ revealCurrent = false } = {}) {
       row.addEventListener("click", () => goToTaz(item.id));
       list.appendChild(row);
     });
-  if (revealCurrent && activeRow) activeRow.scrollIntoView({ block: "center", inline: "nearest" });
+  if (revealCurrent && activeRow) activeRow.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function queueStatusDisplay(item) {
-  if (item.queueStatus === "flag_no_cc") return { label: "NO CC", className: "flag" };
+  if (item.queueStatus === "flag_no_cc") return { label: "FLAG", className: "flag" };
+  if (item.queueStatus === "edited") return { label: "EDITED", className: "edited" };
   if (item.queueStatus === "reviewed") return { label: "REVIEWED", className: "reviewed" };
-  return { label: "TAZ", className: "" };
+  return { label: "WAITING FOR QC", className: "waiting-for-qc" };
 }
 
 async function goToTaz(id, options = {}) {
@@ -427,14 +515,13 @@ function setViewToFeatureCollection(collection) {
     minY: bounds.minY - padY,
     maxY: bounds.maxY + padY,
   };
+  syncLeafletToView();
 }
 
 function draw(mousePoint = null) {
   const ctx = state.ctx;
   ctx.clearRect(0, 0, state.width, state.height);
-  if (state.basemap !== "none" && state.view) {
-    drawBasemap();
-  } else {
+  if (state.basemap === "none") {
     ctx.fillStyle = "#f6f8fb";
     ctx.fillRect(0, 0, state.width, state.height);
     drawGrid();
@@ -471,14 +558,6 @@ function scheduleDraw() {
   });
 }
 
-function scheduleTileRedraw() {
-  if (state.tileRedrawTimer) return;
-  state.tileRedrawTimer = setTimeout(() => {
-    state.tileRedrawTimer = null;
-    scheduleDraw();
-  }, 50);
-}
-
 function updateBasemapAttribution() {
   const attribution = qs("basemapAttribution");
   if (!attribution) return;
@@ -488,93 +567,12 @@ function updateBasemapAttribution() {
     : '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>';
 }
 
-function drawBasemap() {
-  const ctx = state.ctx;
-  ctx.fillStyle = state.basemap === "satellite" ? "#d5d8d2" : "#eef1f5";
-  ctx.fillRect(0, 0, state.width, state.height);
-  if (!window.proj4) {
-    drawGrid();
-    setStatus("Basemap projection library did not load. Vector layers still work.");
-    return;
-  }
-  const center = sourceToLonLat([(state.view.minX + state.view.maxX) / 2, (state.view.minY + state.view.maxY) / 2]);
-  const metersPerPixel = (1 / mapFrame().scale) * FT_TO_M;
-  const targetRes = 156543.03392 * Math.cos((center[1] * Math.PI) / 180);
-  const z = clamp(Math.round(Math.log2(targetRes / metersPerPixel)), 3, state.basemap === "satellite" ? 18 : 19);
-  const corners = [
-    sourceToLonLat([state.view.minX, state.view.minY]),
-    sourceToLonLat([state.view.minX, state.view.maxY]),
-    sourceToLonLat([state.view.maxX, state.view.minY]),
-    sourceToLonLat([state.view.maxX, state.view.maxY]),
-  ];
-  const lons = corners.map((p) => p[0]);
-  const lats = corners.map((p) => p[1]);
-  const nw = lonLatToTile(Math.min(...lons), Math.max(...lats), z);
-  const se = lonLatToTile(Math.max(...lons), Math.min(...lats), z);
-  const maxTile = 2 ** z - 1;
-  for (let x = clamp(nw.x, 0, maxTile); x <= clamp(se.x, 0, maxTile); x += 1) {
-    for (let y = clamp(nw.y, 0, maxTile); y <= clamp(se.y, 0, maxTile); y += 1) {
-      drawTile(x, y, z);
-    }
-  }
-}
-
-function drawTile(x, y, z) {
-  const img = getTileImage(x, y, z);
-  if (!img || !img.complete || !img.naturalWidth) return;
-  const nw = lonLatToSource(tileToLonLat(x, y, z));
-  const se = lonLatToSource(tileToLonLat(x + 1, y + 1, z));
-  const p1 = project(nw);
-  const p2 = project(se);
-  const left = Math.min(p1.x, p2.x);
-  const top = Math.min(p1.y, p2.y);
-  const width = Math.abs(p2.x - p1.x);
-  const height = Math.abs(p2.y - p1.y);
-  if (width > 0 && height > 0) state.ctx.drawImage(img, left, top, width, height);
-}
-
-function getTileImage(x, y, z) {
-  const key = `${state.basemap}:${z}:${x}:${y}`;
-  if (state.tileCache.has(key)) return state.tileCache.get(key);
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.onload = scheduleTileRedraw;
-  img.onerror = () => state.tileCache.set(key, null);
-  img.src =
-    state.basemap === "satellite"
-      ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
-      : `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
-  state.tileCache.set(key, img);
-  while (state.tileCache.size > 256) state.tileCache.delete(state.tileCache.keys().next().value);
-  return img;
-}
-
 function sourceToLonLat(xy) {
   return proj4(SOURCE_PROJ, "WGS84", xy);
 }
 
 function lonLatToSource(xy) {
   return proj4("WGS84", SOURCE_PROJ, xy);
-}
-
-function lonLatToTile(lon, lat, z) {
-  const n = 2 ** z;
-  const latRad = (lat * Math.PI) / 180;
-  return {
-    x: Math.floor(((lon + 180) / 360) * n),
-    y: Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n),
-  };
-}
-
-function tileToLonLat(x, y, z) {
-  const n = 2 ** z;
-  const lon = (x / n) * 360 - 180;
-  const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
-  return [lon, lat];
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function drawGrid() {
@@ -687,12 +685,22 @@ function drawNodes() {
     const p = project(coord);
     const eligible = feature.properties.SNAP_ELIG === true;
     const pending = state.pendingNode && state.pendingNode.properties.NODE_ID_TEXT === feature.properties.NODE_ID_TEXT;
+    const hovered = Boolean(
+      state.selectedConnector
+      && eligible
+      && String(feature.properties.NODE_ID_TEXT) === state.hoveredNodeId
+    );
     ctx.beginPath();
-    ctx.arc(p.x, p.y, pending ? 8 : eligible ? 5 : 4, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, hovered ? 10 : pending ? 8 : eligible ? 5 : 4, 0, Math.PI * 2);
     ctx.fillStyle = eligible ? "#2aa876" : "#d62828";
     ctx.fill();
-    ctx.lineWidth = pending ? 3 : 1.2;
-    ctx.strokeStyle = pending ? "#111827" : "#ffffff";
+    if (hovered) {
+      ctx.lineWidth = 7;
+      ctx.strokeStyle = "rgba(255,255,255,0.98)";
+      ctx.stroke();
+    }
+    ctx.lineWidth = hovered ? 3 : pending ? 3 : 1.2;
+    ctx.strokeStyle = hovered ? "#ff8500" : pending ? "#111827" : "#ffffff";
     ctx.stroke();
   }
 }
@@ -756,6 +764,11 @@ function drawEndpoint(mousePoint = null) {
 }
 
 function project(coord) {
+  if (state.leafletMap) {
+    const [lon, lat] = sourceToLonLat(coord);
+    const point = state.leafletMap.latLngToContainerPoint([lat, lon]);
+    return { x: point.x, y: point.y };
+  }
   const frame = mapFrame();
   const x = frame.offsetX + (coord[0] - state.view.minX) * frame.scale;
   const y = frame.offsetY + (state.view.maxY - coord[1]) * frame.scale;
@@ -763,6 +776,10 @@ function project(coord) {
 }
 
 function unproject(point) {
+  if (state.leafletMap) {
+    const latLng = state.leafletMap.containerPointToLatLng(L.point(point.x, point.y));
+    return lonLatToSource([latLng.lng, latLng.lat]);
+  }
   const frame = mapFrame();
   const x = state.view.minX + (point.x - frame.offsetX) / frame.scale;
   const y = state.view.maxY - (point.y - frame.offsetY) / frame.scale;
@@ -770,6 +787,19 @@ function unproject(point) {
 }
 
 function mapFrame() {
+  if (state.leafletMap) {
+    const center = { x: state.width / 2, y: state.height / 2 };
+    const first = unproject(center);
+    const second = unproject({ x: center.x + 100, y: center.y });
+    const sourceDistance = Math.hypot(second[0] - first[0], second[1] - first[1]);
+    return {
+      scale: sourceDistance > 0 ? 100 / sourceDistance : 1,
+      drawWidth: state.width,
+      drawHeight: state.height,
+      offsetX: 0,
+      offsetY: 0,
+    };
+  }
   const spanX = state.view.maxX - state.view.minX;
   const spanY = state.view.maxY - state.view.minY;
   const scale = Math.min(state.width / spanX, state.height / spanY);
@@ -785,6 +815,13 @@ function mapFrame() {
 }
 
 function zoomAt(x, y, factor) {
+  if (state.leafletMap) {
+    const zoomDelta = Math.log2(1 / factor);
+    state.leafletMap.setZoomAround(L.point(x, y), state.leafletMap.getZoom() + zoomDelta);
+    syncViewFromLeaflet();
+    draw();
+    return;
+  }
   const before = unproject({ x, y });
   const frame = mapFrame();
   const width = (state.view.maxX - state.view.minX) * factor;
@@ -799,6 +836,12 @@ function zoomAt(x, y, factor) {
 }
 
 function panBy(dx, dy) {
+  if (state.leafletMap) {
+    state.leafletMap.panBy(L.point(-dx, -dy), { animate: false });
+    syncViewFromLeaflet();
+    scheduleDraw();
+    return;
+  }
   const frame = mapFrame();
   const moveX = -dx / frame.scale;
   const moveY = dy / frame.scale;
@@ -822,9 +865,9 @@ function findConnectorAt(point) {
   return best;
 }
 
-function findNodeAt(point) {
+function findNodeAt(point, hitRadius = 12) {
   let best = null;
-  let bestDistance = 12;
+  let bestDistance = hitRadius;
   for (const feature of state.payload?.nodes.features || []) {
     if (feature.properties.SNAP_ELIG !== true) continue;
     const p = project(feature.geometry.coordinates);
@@ -854,12 +897,23 @@ function nearestEligibleNode(point) {
 
 function updateHover(point) {
   if (!state.payload) return;
-  const hit = findHoverFeature(point);
+  const candidate = state.selectedConnector ? findEligibleNodeAt(point, 18) : null;
+  updateHoveredCandidateNode(candidate);
+  const hit = candidate
+    ? { type: "Non-Major Node", feature: candidate }
+    : findHoverFeature(point);
   if (!hit) {
     hideFeatureTooltip();
     return;
   }
   showFeatureTooltip(hit, point);
+}
+
+function updateHoveredCandidateNode(feature) {
+  const nextId = feature ? String(feature.properties.NODE_ID_TEXT) : null;
+  if (nextId === state.hoveredNodeId) return;
+  state.hoveredNodeId = nextId;
+  scheduleDraw();
 }
 
 function findHoverFeature(point) {
@@ -887,6 +941,21 @@ function findAnyNodeAt(point) {
   let best = null;
   let bestDistance = 10;
   for (const feature of state.payload?.nodes.features || []) {
+    const p = project(feature.geometry.coordinates);
+    const distance = Math.hypot(point.x - p.x, point.y - p.y);
+    if (distance < bestDistance) {
+      best = feature;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function findEligibleNodeAt(point, hitRadius = 18) {
+  let best = null;
+  let bestDistance = hitRadius;
+  for (const feature of state.payload?.nodes.features || []) {
+    if (feature.properties.SNAP_ELIG !== true) continue;
     const p = project(feature.geometry.coordinates);
     const distance = Math.hypot(point.x - p.x, point.y - p.y);
     if (distance < bestDistance) {
@@ -983,6 +1052,7 @@ function selectConnector(feature) {
   state.selectedConnector = feature;
   state.contextConnector = feature;
   state.pendingNode = null;
+  state.hoveredNodeId = null;
   state.dirty = false;
   updateInspector(feature.properties);
   draw();
@@ -992,21 +1062,25 @@ async function saveConnectorToNode(feature) {
   if (!state.selectedConnector || !feature) return;
   const ccPt = state.selectedConnector.properties.CC_PT;
   const nodeId = feature.properties.NODE_ID_TEXT;
-  const result = await getJson("/api/save-edit", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ccPt,
-      nodeId,
-      note: qs("qcNote").value,
-    }),
-  });
-  updateHistoryButtons(result);
-  state.pendingNode = null;
-  state.dirty = false;
-  toast(`Saved ${ccPt} to node ${nodeId}.`);
-  await refreshQueueState();
-  await goToTaz(state.currentTazId, { keepView: true });
+  try {
+    const result = await getJson("/api/save-edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ccPt,
+        nodeId,
+        note: qs("qcNote").value,
+      }),
+    });
+    updateHistoryButtons(result);
+    state.pendingNode = null;
+    state.dirty = false;
+    toast(`Saved ${ccPt} to node ${nodeId}.`);
+    await refreshQueueState();
+    await goToTaz(state.currentTazId, { keepView: true });
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 function toggleAddMode() {
@@ -1026,21 +1100,25 @@ function updateAddModeUi() {
 
 async function addConnectorToNode(feature) {
   const nodeId = feature.properties.NODE_ID_TEXT;
-  const result = await getJson("/api/add-connector", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tazId: state.currentTazId,
-      nodeId,
-      note: qs("qcNote").value,
-    }),
-  });
-  updateHistoryButtons(result);
-  state.addMode = false;
-  updateAddModeUi();
-  toast(`Added CC to node ${nodeId}.`);
-  await refreshQueueState();
-  await goToTaz(state.currentTazId, { keepView: true });
+  try {
+    const result = await getJson("/api/add-connector", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tazId: state.currentTazId,
+        nodeId,
+        note: qs("qcNote").value,
+      }),
+    });
+    updateHistoryButtons(result);
+    state.addMode = false;
+    updateAddModeUi();
+    toast(`Added CC to node ${nodeId}.`);
+    await refreshQueueState();
+    await goToTaz(state.currentTazId, { keepView: true });
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 function updateInspector(props) {
@@ -1143,6 +1221,7 @@ async function showCubePath() {
 function clearSelection() {
   state.selectedConnector = null;
   state.pendingNode = null;
+  state.hoveredNodeId = null;
   state.contextConnector = null;
   state.dirty = false;
   hideContextMenu();

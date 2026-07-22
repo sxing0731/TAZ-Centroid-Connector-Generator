@@ -3,33 +3,80 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
-const dataPath = path.join(root, "docs", "data", "all.json");
-const data = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+const dataRoot = path.join(root, "docs", "data");
+const corePath = path.join(dataRoot, "core.json");
+const manifestPath = path.join(dataRoot, "tiles", "manifest.json");
+const overviewPath = path.join(dataRoot, "tiles", "overview.json");
+const mvtManifestPath = path.join(dataRoot, "mvt", "manifest.json");
+const core = JSON.parse(fs.readFileSync(corePath, "utf8"));
+const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const overview = JSON.parse(fs.readFileSync(overviewPath, "utf8"));
+const mvtManifest = JSON.parse(fs.readFileSync(mvtManifestPath, "utf8"));
 
-assert.equal(data.schemaVersion, 2);
-assert.equal(data.count, data.tazOrder.length);
-assert.equal(data.count, data.tazs.length);
-assert.ok(data.connectors.length > 0);
-assert.ok(data.nodes.length > 300000);
-assert.ok(data.links.length > 0);
-assert.ok(data.tazOrder.every((item) => !("file" in item)));
-const numericTazOrder = data.tazOrder.map((item) => Number(item.id));
+assert.equal(core.schemaVersion, 4);
+assert.equal(manifest.schemaVersion, 1);
+assert.equal(core.count, core.tazOrder.length);
+assert.equal(core.count, core.tazs.length);
+assert.ok(core.connectors.length > 0);
+assert.ok(core.connectorNodes.length > 0);
+assert.ok(core.counts.nodes > 300000);
+assert.ok(core.counts.gstdmLines > 0);
+assert.equal(core.tileManifest, "data/tiles/manifest.json");
+assert.equal(core.vectorTiles.format, "mvt");
+assert.equal(core.vectorTiles.generalizationVersion, 2);
+assert.equal(core.vectorTiles.generalization.method, "topology-preserving-simplify");
+assert.equal(core.vectorTiles.tiles, "data/mvt/{z}/{x}/{y}.pbf");
+assert.equal(mvtManifest.maxzoom, 12);
+assert.ok(mvtManifest.tileCount > 1000);
+assert.ok(mvtManifest.bytes > 1_000_000);
+assert.deepEqual(core.vectorTiles, mvtManifest);
+assert.ok(manifest.tileSizeFeet > 0);
+assert.ok(manifest.paddingFeet > 0);
+assert.ok(manifest.detailScale > manifest.overviewScale);
+assert.ok(Object.keys(manifest.tiles).length > 0);
+assert.equal(fs.existsSync(path.join(dataRoot, "all.json")), false);
+assert.equal(fs.existsSync(path.join(dataRoot, "taz")), false);
+assert.equal(fs.existsSync(path.join(dataRoot, "index.json")), false);
+
+const numericTazOrder = core.tazOrder.map((item) => Number(item.id));
 assert.deepEqual(numericTazOrder, [...numericTazOrder].sort((left, right) => left - right));
+const tazIds = new Set(core.tazs.map((item) => String(item.id)));
+const centroidIds = new Set(core.centroids.map((item) => String(item.id)));
+const connectorNodeIds = new Set(core.connectorNodes.map((item) => String(item.id)));
+assert.ok(core.tazOrder.every((item) => tazIds.has(String(item.id))));
+assert.ok(core.tazOrder.every((item) => centroidIds.has(String(item.id))));
+assert.ok(core.connectors.every((item) => tazIds.has(String(item.tazId))));
+assert.ok(core.connectors.every((item) => connectorNodeIds.has(String(item.nodeId))));
+assert.ok(core.connectors.every((item) => typeof item.endBoundaryDist === "number"));
+assert.ok(core.connectors.every((item) => typeof item.interiorFallback === "boolean"));
+assert.ok(core.connectors.every((item) => item.interiorFallback === (item.endBoundaryDist > 200.000001)));
+assert.ok(core.nodeSource);
 
-const tazIds = new Set(data.tazs.map((item) => String(item.id)));
-const centroidIds = new Set(data.centroids.map((item) => String(item.id)));
-const nodeIds = new Set(data.nodes.map((item) => String(item.id)));
-assert.ok(data.tazOrder.every((item) => tazIds.has(String(item.id))));
-assert.ok(data.tazOrder.every((item) => centroidIds.has(String(item.id))));
-assert.ok(data.connectors.every((item) => tazIds.has(String(item.tazId))));
-assert.ok(data.connectors.every((item) => nodeIds.has(String(item.nodeId))));
-assert.ok(data.connectors.every((item) => typeof item.endBoundaryDist === "number"));
-assert.ok(data.connectors.every((item) => typeof item.interiorFallback === "boolean"));
-assert.ok(data.connectors.every((item) => item.interiorFallback === (item.endBoundaryDist > 200.000001)));
-assert.ok(data.nodeSource);
+let tiledNodeCount = 0;
+const tiledLineIds = new Set();
+for (const [key, metadata] of Object.entries(manifest.tiles)) {
+  if (metadata.nodes) {
+    const tile = JSON.parse(fs.readFileSync(path.join(dataRoot, "tiles", "nodes", `${key}.json`), "utf8"));
+    assert.equal(tile.nodes.length, metadata.nodes);
+    tiledNodeCount += tile.nodes.length;
+  }
+  if (metadata.lines) {
+    const tile = JSON.parse(fs.readFileSync(path.join(dataRoot, "tiles", "links", `${key}.json`), "utf8"));
+    assert.equal(tile.lines.length, metadata.lines);
+    for (const [lineId, coordinates] of tile.lines) {
+      tiledLineIds.add(String(lineId));
+      assert.ok(coordinates.length >= 2);
+    }
+  }
+}
+assert.equal(tiledNodeCount, core.counts.nodes);
+assert.equal(tiledLineIds.size, core.counts.gstdmLines);
+assert.equal(overview.coarseClusters.reduce((sum, item) => sum + item.count, 0), core.counts.nodes);
+assert.equal(overview.mediumClusters.reduce((sum, item) => sum + item.count, 0), core.counts.nodes);
+assert.ok(overview.gstdmLines.length < core.counts.gstdmLines / 10);
 
 const connectorsByTaz = new Map();
-for (const connector of data.connectors) {
+for (const connector of core.connectors) {
   const tazId = String(connector.tazId);
   if (!connectorsByTaz.has(tazId)) connectorsByTaz.set(tazId, []);
   connectorsByTaz.get(tazId).push(connector);
@@ -53,17 +100,23 @@ for (const connectors of connectorsByTaz.values()) {
   }
 }
 
-assert.equal(fs.existsSync(path.join(root, "docs", "data", "taz")), false);
-assert.equal(fs.existsSync(path.join(root, "docs", "data", "index.json")), false);
-
 const appSource = fs.readFileSync(path.join(root, "docs", "app.js"), "utf8");
-assert.doesNotMatch(appSource, /data\/index\.json|item\.file|state\.cache/);
-assert.match(appSource, /data\/all\.json/);
+const generatorSource = fs.readFileSync(path.join(root, "generate_docs_data.py"), "utf8");
+assert.doesNotMatch(appSource, /data\/all\.json|data\/index\.json|item\.file|state\.cache/);
+assert.match(appSource, /data\/core\.json/);
+assert.match(appSource, /tileKeysForBounds/);
+assert.match(appSource, /paddedViewportBounds/);
+assert.match(appSource, /scheduleViewportLoad/);
+assert.match(appSource, /finishCanvasPreview\(90\);[\s\S]*?scheduleViewportLoad\(\);/);
+assert.match(appSource, /finishCanvasPreview\(\);[\s\S]*?scheduleViewportLoad\(\);/);
+assert.match(appSource, /clearTimeout\(state\.viewportLoadTimer\)/);
+assert.match(appSource, /fetchCached/);
+assert.match(appSource, /viewportMode/);
+assert.match(appSource, /drawNodeClusters/);
+assert.match(appSource, /ensureImportedNodes/);
 assert.match(appSource, /setViewToAllData/);
 assert.match(appSource, /drawGlobalLinks/);
 assert.match(appSource, /function visibleWorldBounds\(\)/);
-assert.match(appSource, /querySpatialGrid\(state\.nodeGrid, bounds\)/);
-assert.match(appSource, /querySpatialGrid\(state\.connectorGrid, bounds\)/);
 assert.match(appSource, /layerOrder:/);
 assert.match(appSource, /bindLayerReordering/);
 assert.match(appSource, /QC_NOTES/);
@@ -73,23 +126,21 @@ assert.match(appSource, /updateHoveredTaz/);
 assert.match(appSource, /function exportFinalCc/);
 assert.match(appSource, /function makeCsv/);
 assert.match(appSource, /function resetBrowserData/);
-assert.match(appSource, /resetBrowserDataBtn/);
-assert.match(appSource, /Object\.values\(STORAGE_KEYS\)/);
 assert.match(appSource, /function getTazStatus/);
 assert.match(appSource, /function exportTazQcStatus/);
-assert.match(appSource, /function makePolygonShapefile/);
 assert.match(appSource, /function drawCentroidTriangle/);
-assert.match(appSource, /ctx\.fillStyle = "#e00000"/);
-assert.match(appSource, /ctx\.strokeStyle = "rgba\(255,255,255,0\.98\)"/);
 assert.match(appSource, /function sortTazOrder/);
-assert.match(appSource, /renderQueue\(\{ revealCurrent: true \}\)/);
-assert.match(appSource, /activeRow\.scrollIntoView\(\{ block: "center", inline: "nearest" \}\)/);
+assert.match(appSource, /activeRow\.scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)/);
+assert.match(appSource, /generalizationVersion/);
+assert.doesNotMatch(generatorSource, /OVERVIEW_QUANTIZE_FEET/);
+assert.match(generatorSource, /OVERVIEW_SIMPLIFY_FEET_BY_ZOOM/);
+assert.match(generatorSource, /simplify\(tolerance, preserve_topology=True\)/);
 
 console.log(JSON.stringify({
-  tazs: data.tazs.length,
-  connectors: data.connectors.length,
-  nodes: data.nodes.length,
-  links: data.links.length,
+  coreBytes: fs.statSync(corePath).size,
+  tiles: Object.keys(manifest.tiles).length,
+  nodes: tiledNodeCount,
+  gstdmLines: tiledLineIds.size,
+  overviewLines: overview.gstdmLines.length,
   minimumAngle,
-  bytes: fs.statSync(dataPath).size,
 }));

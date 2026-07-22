@@ -73,6 +73,9 @@ async function main() {
     ]),
     [{ tazId: "1", nodeIds: ["10", "20"], separation: 40 }]
   );
+  const exportSource = appSource.slice(appSource.indexOf("async function exportFinalCc"), appSource.indexOf("function makeCsv"));
+  assert.doesNotMatch(exportSource, /findTazAngleConflicts\(sourceRows\)/, "manual angle overrides should not block final export");
+  assert.match(exportSource, /findCrossTazNodeConflicts\(sourceRows\)/, "cross-TAZ shared nodes should still block final export");
   console.log("QCNOTES DBF and CSV export tests passed");
 }
 
