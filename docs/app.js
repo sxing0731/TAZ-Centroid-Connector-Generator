@@ -28,6 +28,13 @@ function validMissingLinks(value) {
       && Array.isArray(link.aCoord) && link.aCoord.length >= 2
       && Array.isArray(link.bCoord) && link.bCoord.length >= 2
       && link.aCoord.every(Number.isFinite) && link.bCoord.every(Number.isFinite))
+      .map((link) => ({
+        ...link,
+        records: Math.max(1, Math.min(2, Number(link.records) || 2)),
+        lanes: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : 1,
+        hereMiss: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : 1,
+        fclass: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : 32,
+      }))
     : [];
 }
 
@@ -78,6 +85,7 @@ const state = {
   dragStart: null,
   pointerStart: null,
   pointerMoved: false,
+  clearSelectionOnPointerUp: false,
   isPanning: false,
   isDraggingEndpoint: false,
   activePointerId: null,
@@ -507,6 +515,7 @@ function bindControls() {
   document.querySelectorAll("[data-inspector-tab]").forEach((button) => {
     button.addEventListener("click", () => setInspectorTab(button.dataset.inspectorTab));
   });
+  bindToolbarMenus();
   bindInspectorResizer();
   qs("ctxAddCcBtn").addEventListener("click", () => {
     hideContextMenu();
@@ -573,6 +582,25 @@ function bindControls() {
   });
   bindLayerReordering();
   updateMissingLinkModeUi();
+}
+
+function bindToolbarMenus() {
+  const menus = Array.from(document.querySelectorAll(".toolbar-menu"));
+  for (const menu of menus) {
+    menu.addEventListener("toggle", () => {
+      if (!menu.open) return;
+      for (const other of menus) {
+        if (other !== menu) other.removeAttribute("open");
+      }
+    });
+    for (const button of menu.querySelectorAll("button")) {
+      button.addEventListener("click", () => menu.removeAttribute("open"));
+    }
+  }
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".toolbar-menu")) return;
+    for (const menu of menus) menu.removeAttribute("open");
+  });
 }
 
 function restoreLayerOrder() {
@@ -711,6 +739,7 @@ function bindCanvas() {
     hideContextMenu();
     hideMissingLinkContextMenu();
     hideTazStatusMenu();
+    state.clearSelectionOnPointerUp = false;
     const pt = eventPoint(event);
     if (event.pointerType === "touch") {
       state.touchPointers.set(event.pointerId, pt);
@@ -774,6 +803,7 @@ function bindCanvas() {
       return;
     }
     state.lastTapAt = now;
+    state.clearSelectionOnPointerUp = Boolean(state.selected || state.selectedMissingLink);
     state.isPanning = true;
     state.dragStart = pt;
     state.canvas.classList.add("panning");
@@ -852,6 +882,7 @@ function finishPointer(event) {
       state.dragStart = null;
       state.pointerStart = null;
       state.pointerMoved = false;
+      state.clearSelectionOnPointerUp = false;
       state.canvas.classList.remove("dragging", "panning");
       finishCanvasPreview();
       scheduleViewportLoad();
@@ -860,6 +891,10 @@ function finishPointer(event) {
     }
   }
   if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
+  const shouldClearSelection = event.type === "pointerup"
+    && state.clearSelectionOnPointerUp
+    && !state.pointerMoved
+    && !state.isDraggingEndpoint;
   if (state.isDraggingEndpoint) {
     if (state.pendingNode) {
       applyEditToNode(state.pendingNode);
@@ -873,11 +908,13 @@ function finishPointer(event) {
   state.dragStart = null;
   state.pointerStart = null;
   state.pointerMoved = false;
+  state.clearSelectionOnPointerUp = false;
   state.activePointerId = null;
   state.canvas.classList.remove("dragging", "panning");
   if (event.pointerId !== undefined && state.canvas.hasPointerCapture(event.pointerId)) {
     state.canvas.releasePointerCapture(event.pointerId);
   }
+  if (shouldClearSelection) clearSelection();
   finishCanvasPreview();
   scheduleViewportLoad();
 }
@@ -1803,6 +1840,10 @@ async function importMissingLinkFiles(event) {
         b: String(link.b),
         aCoord: [Number(first.x), Number(first.y)],
         bCoord: [Number(second.x), Number(second.y)],
+        records: Math.max(1, Math.min(2, Number(link.records) || 2)),
+        lanes: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : 1,
+        hereMiss: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : 1,
+        fclass: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : 32,
       }];
     });
     if (!loadedLinks.length) {
@@ -2646,15 +2687,17 @@ function deleteSelectedConnector() {
   const remainingCount = Math.max(0, state.payload.connectors.length - 1);
   pushEditHistory();
   state.edits[tazId] ||= {};
-  if (connector.status === "added" || connector.ccPt.includes("_ADD")) {
-    state.edits[tazId].added = (state.edits[tazId].added || []).filter((item) => item.ccPt !== connector.ccPt);
+  const addedConnector = (state.edits[tazId].added || []).includes(connector);
+  const editKey = connectorEditKey(tazId, connector);
+  if (addedConnector) {
+    state.edits[tazId].added = (state.edits[tazId].added || []).filter((item) => item !== connector);
   } else {
     state.edits[tazId].deleted ||= [];
-    if (!state.edits[tazId].deleted.includes(connector.ccPt)) state.edits[tazId].deleted.push(connector.ccPt);
-    if (state.edits[tazId].connectors) delete state.edits[tazId].connectors[connector.ccPt];
+    if (!state.edits[tazId].deleted.includes(editKey)) state.edits[tazId].deleted.push(editKey);
+    if (state.edits[tazId].connectors) delete state.edits[tazId].connectors[editKey];
   }
   markTazEdited(tazId);
-  state.payload.connectors = state.payload.connectors.filter((item) => item.ccPt !== connector.ccPt);
+  state.payload.connectors = state.payload.connectors.filter((item) => item !== connector);
   state.selected = null;
   state.contextConnector = null;
   state.pendingNode = null;
@@ -2722,6 +2765,205 @@ function appendTableCell(row, value, className = "") {
   row.appendChild(cell);
 }
 
+function appendEditableTableCell(row, value, options = {}) {
+  const cell = document.createElement("td");
+  if (options.className) cell.className = options.className;
+  const editor = options.choices ? document.createElement("select") : document.createElement("input");
+  editor.className = `table-editor${options.type === "number" ? " table-editor-number" : ""}${options.editorClass ? ` ${options.editorClass}` : ""}`;
+  if (options.ariaLabel) editor.setAttribute("aria-label", options.ariaLabel);
+  if (options.title) editor.title = options.title;
+  if (options.choices) {
+    for (const choice of options.choices) {
+      const option = document.createElement("option");
+      option.value = typeof choice === "string" ? choice : choice.value;
+      option.textContent = typeof choice === "string" ? choice : choice.label;
+      editor.appendChild(option);
+    }
+  } else {
+    editor.type = options.type || "text";
+    if (options.min != null) editor.min = options.min;
+    if (options.max != null) editor.max = options.max;
+    if (options.step != null) editor.step = options.step;
+  }
+  const originalValue = value == null ? "" : String(value);
+  editor.value = originalValue;
+  for (const eventName of ["click", "dblclick", "pointerdown", "contextmenu"]) {
+    editor.addEventListener(eventName, (event) => event.stopPropagation());
+  }
+  editor.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      editor.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      editor.value = originalValue;
+      editor.blur();
+    }
+  });
+  editor.addEventListener("change", async () => {
+    if (editor.value === originalValue || typeof options.onCommit !== "function") return;
+    editor.disabled = true;
+    try {
+      await options.onCommit(editor.value);
+    } catch (error) {
+      console.error(error);
+      editor.value = originalValue;
+      editor.disabled = false;
+      toast(error.message || "Table edit failed.");
+    }
+  });
+  cell.appendChild(editor);
+  row.appendChild(cell);
+}
+
+function connectorEditKey(tazId, connector) {
+  const edits = state.edits[String(tazId)]?.connectors || {};
+  if (Object.prototype.hasOwnProperty.call(edits, connector.ccPt)) return connector.ccPt;
+  return Object.entries(edits).find(([, value]) => String(value?.ccPt || "") === String(connector.ccPt))?.[0]
+    || connector.ccPt;
+}
+
+function persistConnectorTableState(tazId, connector, editKey) {
+  const tazEdit = state.edits[String(tazId)] ||= {};
+  if ((tazEdit.added || []).includes(connector)) return;
+  tazEdit.connectors ||= {};
+  tazEdit.connectors[editKey] = {
+    ...(tazEdit.connectors[editKey] || {}),
+    ccPt: connector.ccPt,
+    nodeId: connector.nodeId,
+    majorLevel: connector.majorLevel,
+    outsideLen: connector.outsideLen,
+    endBoundaryDist: connector.endBoundaryDist,
+    interiorFallback: connector.interiorFallback,
+    status: connector.status,
+    geom: connector.geom,
+  };
+}
+
+function numericTableValue(rawValue, label, options = {}) {
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) throw new Error(`${label} must be a number.`);
+  if (options.integer && !Number.isInteger(value)) throw new Error(`${label} must be a whole number.`);
+  if (options.min != null && value < options.min) throw new Error(`${label} must be at least ${options.min}.`);
+  if (options.max != null && value > options.max) throw new Error(`${label} must be no more than ${options.max}.`);
+  return value;
+}
+
+async function editConnectorTableField(connector, field, rawValue) {
+  if (!state.payload || !state.payload.connectors.includes(connector)) throw new Error("This connector is no longer active.");
+  const tazId = String(state.payload.tazId);
+  const editKey = connectorEditKey(tazId, connector);
+  let value = rawValue;
+  let targetNode = null;
+  if (field === "ccPt") {
+    value = String(rawValue).trim();
+    if (!value) throw new Error("CC_PT cannot be empty.");
+    if (state.payload.connectors.some((item) => item !== connector && String(item.ccPt) === value)) {
+      throw new Error(`CC_PT ${value} already exists in TAZ ${tazId}.`);
+    }
+  } else if (field === "nodeId") {
+    value = CcFileLoader.cleanId(rawValue);
+    if (!value) throw new Error("Node cannot be empty.");
+    await ensureNodesByIds([value]);
+    targetNode = state.nodeById.get(value);
+    if (!targetNode) throw new Error(`Node ${value} was not found in the published node index.`);
+    const validationError = connectorTargetValidation(targetNode, connector.ccPt);
+    if (validationError && String(value) !== String(connector.nodeId)) throw new Error(validationError);
+  } else if (field === "majorLevel") {
+    value = numericTableValue(rawValue, "Major", { min: 0 });
+  } else if (field === "outsideLen") {
+    value = numericTableValue(rawValue, "Outside ft", { min: 0 });
+  } else if (field === "endBoundaryDist") {
+    value = numericTableValue(rawValue, "End ft", { min: 0 });
+  } else if (field === "interiorFallback") {
+    value = String(rawValue).toUpperCase() === "INTERIOR";
+  } else if (field === "status") {
+    value = String(rawValue).trim().toLowerCase();
+    if (!value) throw new Error("Status cannot be empty.");
+  }
+
+  pushEditHistory();
+  if (field === "nodeId") {
+    connector.nodeId = value;
+    connector.majorLevel = targetNode.majorLevel;
+    connector.geom = { type: "LineString", coordinates: [state.payload.centroid, [targetNode.x, targetNode.y]] };
+    connector.outsideLen = segmentOutsideLength(state.payload.centroid, [targetNode.x, targetNode.y], state.payload.taz);
+    connector.endBoundaryDist = pointGeometryBoundaryDistance([targetNode.x, targetNode.y], state.payload.taz);
+    connector.interiorFallback = connector.endBoundaryDist > 200.000001;
+  } else {
+    connector[field] = value;
+  }
+  markTazEdited(tazId);
+  persistConnectorTableState(tazId, connector, editKey);
+  saveLocal();
+  state.selected = connector;
+  updateInspector();
+  updateMapLibreSelection();
+  draw();
+  toast(`Updated ${connector.ccPt} ${field}.`);
+}
+
+async function editMissingLinkTableField(link, field, rawValue) {
+  if (!state.missingLinks.includes(link)) throw new Error("This missing link is no longer active.");
+  let value = rawValue;
+  let targetNode = null;
+  if (field === "a" || field === "b") {
+    value = CcFileLoader.cleanId(rawValue);
+    if (!value) throw new Error(`${field.toUpperCase()} cannot be empty.`);
+    const otherId = String(field === "a" ? link.b : link.a);
+    if (value === otherId) throw new Error("A and B must be different nodes.");
+    await ensureNodesByIds([value]);
+    targetNode = state.nodeById.get(value);
+    if (!targetNode) throw new Error(`Node ${value} was not found in the published node index.`);
+    const nextA = field === "a" ? value : link.a;
+    const nextB = field === "b" ? value : link.b;
+    const nextKey = missingLinkPairKey(nextA, nextB);
+    if (state.missingLinks.some((item) => item !== link && item.pairKey === nextKey)) {
+      throw new Error(`HERE_MISS ${nextA} - ${nextB} already exists.`);
+    }
+  } else if (field === "records") {
+    value = numericTableValue(rawValue, "Records", { integer: true, min: 1, max: 2 });
+  } else if (field === "lanes") {
+    value = numericTableValue(rawValue, "LANES", { min: 0 });
+  } else if (field === "hereMiss") {
+    value = numericTableValue(rawValue, "HERE_MISS", { integer: true, min: 0, max: 1 });
+  } else if (field === "fclass") {
+    value = numericTableValue(rawValue, "FCLASS", { integer: true, min: 0 });
+  }
+
+  pushEditHistory();
+  if (field === "a" || field === "b") {
+    link[field] = value;
+    link[field === "a" ? "aCoord" : "bCoord"] = [Number(targetNode.x), Number(targetNode.y)];
+    link.pairKey = missingLinkPairKey(link.a, link.b);
+  } else {
+    link[field] = value;
+  }
+  state.selectedMissingLink = link;
+  localStorage.setItem(STORAGE_KEYS.missingLinks, JSON.stringify(state.missingLinks));
+  refreshMapLibreMissingLinks();
+  updateMapLibreSelection();
+  updateMissingLinkModeUi();
+  updateHistoryButtons();
+  renderInspectorTables(true);
+  draw();
+  toast(`Updated HERE_MISS ${link.a} - ${link.b} ${field}.`);
+}
+
+function editTazNote(tazId, note) {
+  const id = String(tazId);
+  pushEditHistory();
+  state.edits[id] ||= {};
+  state.edits[id].note = String(note);
+  saveLocal();
+  if (String(state.payload?.tazId || "") === id) {
+    qs("qcNote").value = String(note);
+    state.inspectorNoteKey = `${id}:TAZ`;
+  }
+  updateInspector();
+  toast(`Updated TAZ ${id} QC note.`);
+}
+
 function renderEmptyTableRow(body, columns, message) {
   const row = document.createElement("tr");
   const cell = document.createElement("td");
@@ -2744,7 +2986,8 @@ function renderInspectorTables(force = false) {
   const signature = JSON.stringify({
     taz: state.payload?.tazId || "",
     connectors: connectors.map((item) => [item.ccPt, item.nodeId, item.majorLevel, item.outsideLen, item.endBoundaryDist, item.interiorFallback, item.status]),
-    missing: state.missingLinks.map((item) => [item.pairKey, item.a, item.b]),
+    missing: state.missingLinks.map((item) => [item.pairKey, item.a, item.b, item.records, item.lanes, item.hereMiss, item.fclass]),
+    tazRows: (state.tazOrder || []).map((item) => [item.id, getTazStatus(item.id), state.connectorCountsByTaz.get(String(item.id)) ?? 0, state.edits[String(item.id)]?.note || ""]),
     selectedCc,
     selectedMissing,
     tab: state.inspectorTab,
@@ -2762,13 +3005,44 @@ function renderInspectorTables(force = false) {
       row.dataset.ccPt = connector.ccPt;
       row.classList.toggle("selected-row", String(connector.ccPt) === selectedCc);
       row.addEventListener("click", () => selectConnector(connector));
-      appendTableCell(row, formatConnectorLabel(connector.ccPt, state.payload.tazId));
-      appendTableCell(row, connector.nodeId);
-      appendTableCell(row, connector.majorLevel);
-      appendTableCell(row, compactFeet(connector.outsideLen));
-      appendTableCell(row, compactFeet(connector.endBoundaryDist));
-      appendTableCell(row, connector.interiorFallback ? "INTERIOR" : "BOUNDARY");
-      appendTableCell(row, String(connector.status || "original").toUpperCase());
+      appendEditableTableCell(row, connector.ccPt, {
+        ariaLabel: `CC_PT for ${connector.ccPt}`,
+        onCommit: (value) => editConnectorTableField(connector, "ccPt", value),
+      });
+      appendEditableTableCell(row, connector.nodeId, {
+        ariaLabel: `Node for ${connector.ccPt}`,
+        onCommit: (value) => editConnectorTableField(connector, "nodeId", value),
+      });
+      appendEditableTableCell(row, connector.majorLevel, {
+        type: "number",
+        min: 0,
+        step: "any",
+        ariaLabel: `Major level for ${connector.ccPt}`,
+        onCommit: (value) => editConnectorTableField(connector, "majorLevel", value),
+      });
+      appendEditableTableCell(row, compactFeet(connector.outsideLen), {
+        type: "number",
+        min: 0,
+        step: "0.1",
+        ariaLabel: `Outside feet for ${connector.ccPt}`,
+        onCommit: (value) => editConnectorTableField(connector, "outsideLen", value),
+      });
+      appendEditableTableCell(row, compactFeet(connector.endBoundaryDist), {
+        type: "number",
+        min: 0,
+        step: "0.1",
+        ariaLabel: `End feet for ${connector.ccPt}`,
+        onCommit: (value) => editConnectorTableField(connector, "endBoundaryDist", value),
+      });
+      appendEditableTableCell(row, connector.interiorFallback ? "INTERIOR" : "BOUNDARY", {
+        choices: ["BOUNDARY", "INTERIOR"],
+        ariaLabel: `Type for ${connector.ccPt}`,
+        onCommit: (value) => editConnectorTableField(connector, "interiorFallback", value),
+      });
+      appendEditableTableCell(row, String(connector.status || "original").toUpperCase(), {
+        ariaLabel: `Status for ${connector.ccPt}`,
+        onCommit: (value) => editConnectorTableField(connector, "status", value),
+      });
       ccBody.appendChild(row);
     }
   }
@@ -2792,12 +3066,41 @@ function renderInspectorTables(force = false) {
         selectMissingLink(link);
         showMissingLinkContextMenu(event.clientX, event.clientY, link);
       });
-      appendTableCell(row, link.a);
-      appendTableCell(row, link.b);
-      appendTableCell(row, 2);
-      appendTableCell(row, 1);
-      appendTableCell(row, 1);
-      appendTableCell(row, 7);
+      appendEditableTableCell(row, link.a, {
+        ariaLabel: `A node for HERE_MISS ${link.a} ${link.b}`,
+        onCommit: (value) => editMissingLinkTableField(link, "a", value),
+      });
+      appendEditableTableCell(row, link.b, {
+        ariaLabel: `B node for HERE_MISS ${link.a} ${link.b}`,
+        onCommit: (value) => editMissingLinkTableField(link, "b", value),
+      });
+      appendEditableTableCell(row, link.records ?? 2, {
+        type: "number",
+        min: 1,
+        max: 2,
+        step: 1,
+        ariaLabel: `Directional record count for HERE_MISS ${link.a} ${link.b}`,
+        onCommit: (value) => editMissingLinkTableField(link, "records", value),
+      });
+      appendEditableTableCell(row, link.lanes ?? 1, {
+        type: "number",
+        min: 0,
+        step: "any",
+        ariaLabel: `LANES for HERE_MISS ${link.a} ${link.b}`,
+        onCommit: (value) => editMissingLinkTableField(link, "lanes", value),
+      });
+      appendEditableTableCell(row, link.hereMiss ?? 1, {
+        choices: ["0", "1"],
+        ariaLabel: `HERE_MISS for ${link.a} ${link.b}`,
+        onCommit: (value) => editMissingLinkTableField(link, "hereMiss", value),
+      });
+      appendEditableTableCell(row, link.fclass ?? 32, {
+        type: "number",
+        min: 0,
+        step: 1,
+        ariaLabel: `FCLASS for HERE_MISS ${link.a} ${link.b}`,
+        onCommit: (value) => editMissingLinkTableField(link, "fclass", value),
+      });
       missingBody.appendChild(row);
     }
   }
@@ -2811,10 +3114,22 @@ function renderInspectorTables(force = false) {
     row.dataset.tazId = tazId;
     row.classList.toggle("current-row", tazId === currentTazId);
     row.addEventListener("click", () => goToTaz(tazId));
-    appendTableCell(row, tazId);
-    appendTableCell(row, getTazStatus(tazId));
-    appendTableCell(row, state.connectorCountsByTaz.get(tazId) ?? 0);
-    appendTableCell(row, state.edits[tazId]?.note || "", "note-cell");
+    appendTableCell(row, tazId, "computed-cell");
+    appendEditableTableCell(row, getTazStatus(tazId), {
+      choices: TAZ_STATUSES,
+      ariaLabel: `QC status for TAZ ${tazId}`,
+      onCommit: (value) => {
+        setTazStatus(tazId, value);
+        updateInspector();
+      },
+    });
+    appendTableCell(row, state.connectorCountsByTaz.get(tazId) ?? 0, "computed-cell");
+    appendEditableTableCell(row, state.edits[tazId]?.note || "", {
+      className: "note-cell",
+      editorClass: "table-editor-note",
+      ariaLabel: `QC note for TAZ ${tazId}`,
+      onCommit: (value) => editTazNote(tazId, value),
+    });
     tazBody.appendChild(row);
   }
 
@@ -3001,6 +3316,10 @@ function chooseMissingLinkNode(node) {
     b: String(node.id),
     aCoord: [Number(first.x), Number(first.y)],
     bCoord: [Number(node.x), Number(node.y)],
+    records: 2,
+    lanes: 1,
+    hereMiss: 1,
+    fclass: 32,
   };
   state.missingLinks.push(createdLink);
   state.selectedMissingLink = createdLink;
@@ -3193,10 +3512,13 @@ async function exportFinalCc() {
 function missingLinkExportRows() {
   const rows = [];
   for (const link of state.missingLinks) {
-    rows.push(
-      { A: link.a, B: link.b, LANES: 1, HERE_MISS: 1, FCLASS: 7 },
-      { A: link.b, B: link.a, LANES: 1, HERE_MISS: 1, FCLASS: 7 }
-    );
+    const properties = {
+      LANES: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : 1,
+      HERE_MISS: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : 1,
+      FCLASS: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : 32,
+    };
+    rows.push({ A: link.a, B: link.b, ...properties });
+    if ((Number(link.records) || 2) >= 2) rows.push({ A: link.b, B: link.a, ...properties });
   }
   return rows;
 }

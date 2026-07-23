@@ -161,6 +161,12 @@ The generator validates both directed-record CSVs, rebuilds connector geometry
 from the published TAZ centroids and node layer, and embeds HERE_MISS geometry
 in `core.json`. Browser uploads can replace either default for the current
 browser, while Reset Browser Data restores these published defaults.
+Published and newly drawn HERE_MISS links use two directional records with
+`LANES=1`, `HERE_MISS=1`, and `FCLASS=32`. The right-side CC, Missing Links, and
+TAZ Status tables support inline editing of their business attributes; TAZ IDs
+and calculated CC counts remain read-only. Clicking blank map space clears the
+current CC or missing-link selection. Top actions are grouped into responsive
+Navigate, Edit, Data, Export, and Help dropdown menus.
 The browser Final CC Export supports DBF or CSV. The optional QCNOTES companion
 contains matching `A`, `B`, and `QC_NOTES` fields for the directed connector
 records; disabling the toggle exports only the main `A/B/FCLASS` file.

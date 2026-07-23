@@ -120,7 +120,12 @@ The static application supports:
 - a separate HERE_MISS map layer with right-click deletion and undo/redo;
 - synchronized CC, Missing Links, and TAZ Status tables in a resizable right
   panel;
+- inline editing for connector fields, missing-link attributes, TAZ review
+  status, and TAZ QC notes;
 - table-row selection highlighting and double-click zoom for HERE_MISS links;
+- blank-map-click deselection for selected CC and HERE_MISS links;
+- categorized Navigate, Edit, Data, Export, and Help dropdown menus that keep
+  the complete action set accessible on small screens;
 - manual rule overrides with visible warnings;
 - browser-persistent layer order and visibility preferences;
 - browser-persistent right-panel width;
@@ -386,8 +391,8 @@ two directed export records:
 
 | A | B | LANES | HERE_MISS | FCLASS |
 | --- | --- | ---: | ---: | ---: |
-| First node | Second node | 1 | 1 | 7 |
-| Second node | First node | 1 | 1 | 7 |
+| First node | Second node | 1 | 1 | 32 |
+| Second node | First node | 1 | 1 | 32 |
 
 The `LANES`, `HERE_MISS`, and `FCLASS` fields are numeric in the DBF output.
 The current published defaults are sourced from
@@ -400,6 +405,12 @@ or table, deleted through the right-click menu, and restored with Undo. The
 static browser application can also load a HERE_MISS DBF or CSV, combine its
 two directional records into one map link, resolve A/B geometry from the
 published node index, and replace the current layer as an undoable operation.
+The Missing Links table can edit A, B, record count, LANES, HERE_MISS, and
+FCLASS; newly created and published links default to two records, LANES=1,
+HERE_MISS=1, and FCLASS=32. The CC table can edit each displayed connector
+attribute, while the TAZ Status table can edit review status and QC notes. TAZ
+IDs and live connector counts remain read-only because they are geometry keys
+and calculated values.
 
 TAZ review status can be exported as:
 
@@ -626,20 +637,25 @@ The project has progressed through six principal phases:
 6. Addition of browser-local HERE_MISS link creation, DBF/CSV loading, and two-way export,
    synchronized QAQC tables, selectable and deletable missing links, resizable
    table layout, and table-driven map zoom.
+7. Addition of inline table editing, blank-map-click deselection, FCLASS=32
+   HERE_MISS defaults, and responsive grouped toolbar menus.
 
 ## 15. Current Development Status
 
-The July 22, 2026 development state includes the MapLibre/MVT statewide map,
+The July 23, 2026 development state includes the MapLibre/MVT statewide map,
 replacement CC-file loading, manual override handling, TAZ status export,
 published CC/HERE_MISS default inputs, HERE_MISS editing, import, and export,
-and the three-tab QAQC table interface.
+the three-tab QAQC table interface, editable table attributes, blank-map-click
+deselection, and categorized responsive toolbar menus.
 
 The current change set has passed the Python and JavaScript automated suites.
 Desktop browser QA has also verified map loading, CC and missing-link row
 selection, HERE_MISS creation and two-direction export, right-click deletion,
 Undo/Redo, TAZ status display, right-panel resizing and persistence, and
-double-click zoom from the Missing Links table. No browser console errors were
-observed during those checks.
+double-click zoom from the Missing Links table. The July 23 QA additionally
+verified grouped dropdown menus, blank-map-click deselection, FCLASS editing
+with Undo, and the published 1,465-CC / 11-missing-link defaults. No browser
+console errors were observed during those checks.
 
 ## 16. Recommended Next Steps
 

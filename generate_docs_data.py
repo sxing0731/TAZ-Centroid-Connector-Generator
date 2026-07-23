@@ -662,6 +662,7 @@ def apply_default_inputs(payload: dict[str, Any], cc_path: Path, missing_path: P
 
     default_missing_links: list[dict[str, Any]] = []
     seen_missing_pairs: set[str] = set()
+    missing_by_pair: dict[str, dict[str, Any]] = {}
     invalid_missing_rows = 0
     for row in missing_rows.to_dict("records"):
         a = id_text(row.get("A"))
@@ -672,25 +673,32 @@ def apply_default_inputs(payload: dict[str, Any], cc_path: Path, missing_path: P
             or a == b
             or id_text(row.get("LANES")) != "1"
             or id_text(row.get("HERE_MISS")) != "1"
-            or id_text(row.get("FCLASS")) != "7"
+            or id_text(row.get("FCLASS")) != "32"
         ):
             invalid_missing_rows += 1
             continue
         pair_key = missing_pair_key(a, b)
         if pair_key in seen_missing_pairs:
+            missing_by_pair[pair_key]["records"] = min(2, int(missing_by_pair[pair_key]["records"]) + 1)
             continue
         seen_missing_pairs.add(pair_key)
         first = node_by_id.get(a)
         second = node_by_id.get(b)
         if first is None or second is None:
             raise SystemExit(f"Default HERE_MISS {a}-{b} cannot be resolved in the published node data.")
-        default_missing_links.append({
+        link = {
             "pairKey": pair_key,
             "a": a,
             "b": b,
             "aCoord": [float(first["x"]), float(first["y"])],
             "bCoord": [float(second["x"]), float(second["y"])],
-        })
+            "records": 1,
+            "lanes": number(row.get("LANES"), 1),
+            "hereMiss": number(row.get("HERE_MISS"), 1),
+            "fclass": number(row.get("FCLASS"), 32),
+        }
+        missing_by_pair[pair_key] = link
+        default_missing_links.append(link)
     if not default_missing_links or invalid_missing_rows:
         raise SystemExit(
             "Default HERE_MISS input produced "
