@@ -2,14 +2,22 @@ const assert = require("node:assert/strict");
 const loader = require("../docs/cc-file-loader.js");
 
 const rows = loader.parseCsv(
-  "A,B,LANES,HERE_MISS,FCLASS\r\n101,202,1,1,7\r\n202,101,1,1,7\r\n303,404,1,0,32\r\n"
+  "A,B,LANES,HERE_MISS,FCLASS\r\n101,202,1,1,7\r\n202,101,1,1,7\r\n303,404,1,0,6\r\n"
 );
 const normalized = loader.normalizeMissingLinkRows(rows);
 assert.equal(normalized.inputRows, 3);
 assert.equal(normalized.linkCount, 1);
 assert.equal(normalized.duplicates, 1);
 assert.equal(normalized.ignored, 1);
-assert.deepEqual(normalized.links, [{ pairKey: "101|202", a: "101", b: "202" }]);
+assert.deepEqual(normalized.links, [{
+  pairKey: "101|202",
+  a: "101",
+  b: "202",
+  records: 2,
+  lanes: 1,
+  hereMiss: 1,
+  fclass: 32,
+}]);
 
 (async () => {
   const loaded = await loader.loadMissingLinkFiles([{

@@ -42,7 +42,7 @@ assert.match(appSource, /state\.maplibreMap\.setFilter\(layer, \["!=", \["get", 
 assert.match(appSource, /queryRenderedFeatures/);
 assert.doesNotMatch(appSource, /function drawBasemap\(|basemapTileCache/);
 
-const labelHelpers = appSource.match(/function integerTazId[\s\S]*?\n}\n\nfunction formatConnectorLabel[\s\S]*?\n}/)?.[0];
+const labelHelpers = appSource.match(/function integerTazId[\s\S]*?\r?\n}\r?\n\r?\nfunction formatConnectorLabel[\s\S]*?\r?\n}/)?.[0];
 assert.ok(labelHelpers, "connector label helpers should be present");
 const labelContext = {};
 vm.runInNewContext(`${labelHelpers}; result = formatConnectorLabel("4.0_S2", "4.0");`, labelContext);

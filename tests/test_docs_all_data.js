@@ -87,6 +87,9 @@ assert.deepEqual([...actualMissingPairs].sort(), [...expectedMissingPairs].sort(
 assert.equal(core.defaultMissingLinks.length, 11);
 assert.ok(core.defaultMissingLinks.every((item) => nodeIndex[item.a] && nodeIndex[item.b]));
 assert.ok(core.defaultMissingLinks.every((item) => item.aCoord.every(Number.isFinite) && item.bCoord.every(Number.isFinite)));
+assert.ok(core.defaultMissingLinks.every((item) => item.records === 2));
+assert.ok(core.defaultMissingLinks.every((item) => item.lanes === 1 && item.hereMiss === 1 && item.fclass === 32));
+assert.ok(simpleCsvRows(defaultMissingPath).every((row) => row.FCLASS === "32"));
 
 let tiledNodeCount = 0;
 const tiledLineIds = new Set();

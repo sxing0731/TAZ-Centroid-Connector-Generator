@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAZ Connector QAQC</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="styles.css?v=20260722-here-miss-tables" />
+    <link rel="stylesheet" href="styles.css?v=20260723-editable-tables-menus" />
   </head>
   <body>
     <header class="topbar">
@@ -17,27 +17,52 @@
         </div>
       </div>
       <div class="toolbar-actions">
-        <button id="prevBtn">Previous TAZ</button>
-        <button id="nextBtn">Next TAZ</button>
-        <button id="zoomAllBtn">Zoom All</button>
-        <button id="undoBtn" disabled>Undo Edit</button>
-        <button id="redoBtn" disabled>Redo Edit</button>
-        <button id="saveBtn" class="primary hidden">Save Edit</button>
-        <button id="addCcBtn">Add CC</button>
-        <button id="addMissingLinkBtn">Add Missing Links</button>
-        <button id="loadMissingLinksBtn">Load HERE_Missing File</button>
+        <details class="toolbar-menu">
+          <summary>Navigate</summary>
+          <div class="toolbar-menu-panel">
+            <button id="prevBtn">Previous TAZ</button>
+            <button id="nextBtn">Next TAZ</button>
+            <button id="zoomAllBtn">Zoom All</button>
+            <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
+            <button id="jumpBtn">Go</button>
+          </div>
+        </details>
+        <details class="toolbar-menu">
+          <summary>Edit</summary>
+          <div class="toolbar-menu-panel">
+            <button id="undoBtn" disabled>Undo Edit</button>
+            <button id="redoBtn" disabled>Redo Edit</button>
+            <button id="saveBtn" class="primary hidden">Save Edit</button>
+            <button id="addCcBtn">Add CC</button>
+            <button id="addMissingLinkBtn">Add Missing Links</button>
+            <button id="reviewedBtn">Mark Reviewed</button>
+          </div>
+        </details>
+        <details class="toolbar-menu">
+          <summary>Data</summary>
+          <div class="toolbar-menu-panel">
+            <button id="loadCcBtn">Load CC File</button>
+            <button id="resetCcBtn" class="hidden">Use Default CC</button>
+            <button id="loadMissingLinksBtn">Load HERE_Missing File</button>
+            <button id="resetBrowserDataBtn" class="reset-data" title="Delete this tool's browser-saved work and reload the initial data">Reset Browser Data</button>
+          </div>
+        </details>
+        <details class="toolbar-menu toolbar-menu-right">
+          <summary>Export</summary>
+          <div class="toolbar-menu-panel">
+            <button id="finalExportBtn">Final CC Export</button>
+            <button id="exportMissingLinksBtn">Export HERE_MISS</button>
+            <button id="tazStatusExportBtn">Export TAZ QC Status</button>
+          </div>
+        </details>
+        <details class="toolbar-menu toolbar-menu-right">
+          <summary>Help</summary>
+          <div class="toolbar-menu-panel">
+            <button id="instructionsBtn">Instructions for Users</button>
+          </div>
+        </details>
         <input id="hereMissingFileInput" class="hidden" type="file" accept=".dbf,.csv,.cvs" />
-        <button id="exportMissingLinksBtn">Export HERE_MISS</button>
-        <button id="reviewedBtn">Mark Reviewed</button>
-        <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
-        <button id="jumpBtn">Go</button>
-        <button id="finalExportBtn">Final CC Export</button>
-        <button id="tazStatusExportBtn">Export TAZ QC Status</button>
-        <button id="loadCcBtn">Load CC File</button>
         <input id="ccFileInput" class="hidden" type="file" multiple accept=".dbf,.csv,.cvs,.shp,.json,.geojson" />
-        <button id="resetCcBtn" class="hidden">Use Default CC</button>
-        <button id="resetBrowserDataBtn" class="reset-data" title="Delete this tool's browser-saved work and reload the initial data">Reset Browser Data</button>
-        <button id="instructionsBtn">Instructions for Users</button>
         <div id="uploadBadge" class="badge upload-badge hidden"></div>
         <div id="dirtyBadge" class="badge hidden">Unsaved edit</div>
       </div>
@@ -107,7 +132,7 @@
             <label><input type="radio" name="missingLinksExportFormat" value="csv" /> CSV</label>
           </div>
         </fieldset>
-        <p class="export-hint">Each link exports as two records: A to B and B to A, with LANES=1, HERE_MISS=1, and FCLASS=7.</p>
+        <p class="export-hint">Each link defaults to two records: A to B and B to A, with LANES=1, HERE_MISS=1, and FCLASS=32. Values edited in the Missing Links table are preserved.</p>
       </div>
       <div class="export-dialog-actions">
         <button id="cancelMissingLinksExportBtn" type="button">Cancel</button>
@@ -209,7 +234,7 @@
           </div>
           <div id="tazStatusTablePanel" class="inspector-table-panel hidden" role="tabpanel" aria-labelledby="tazStatusTableTab">
             <table class="inspector-table">
-              <thead><tr><th>TAZ</th><th>Status</th><th>CCs</th><th>QC Note</th></tr></thead>
+              <thead><tr><th title="TAZ geometry identifier (read-only)">TAZ</th><th>Status</th><th title="Calculated connector count (read-only)">CCs</th><th>QC Note</th></tr></thead>
               <tbody id="tazStatusTableBody"></tbody>
             </table>
           </div>
@@ -263,8 +288,9 @@
             <li>To add a new connector, click Add CC, then choose the target node. The new connector is generated and saved directly.</li>
             <li>To add a missing roadway link, click Add Missing Links, choose the first node, then choose the second node. Any visible detailed node can be used, and candidate nodes highlight on hover.</li>
             <li>HERE_MISS is a separate map layer. Use Load HERE_Missing File to replace the current layer from a HERE_MISS DBF or CSV. Reverse-direction records are combined into one map link, and the operation can be undone.</li>
-            <li>Use Export HERE_MISS to download DBF or CSV; each drawn or loaded link produces A-to-B and B-to-A records with LANES=1, HERE_MISS=1, and FCLASS=7.</li>
+            <li>Use Export HERE_MISS to download DBF or CSV. New links default to two directional records with LANES=1, HERE_MISS=1, and FCLASS=32; these values can be edited in the Missing Links table.</li>
             <li>Use the CC, Missing Links, and TAZ Status tabs in the right panel to review records. Selecting a CC or HERE_MISS link on the map highlights its table row. Right-click a HERE_MISS line or table row to delete it. Drag the left edge of the right panel to resize the tables.</li>
+            <li>Edit table values directly. Press Enter or leave a field to save it; press Escape to cancel. TAZ IDs and calculated CC counts remain read-only because they are tied to published geometry and live connector records.</li>
             <li>Use Undo Edit or Redo Edit if needed.</li>
             <li>Every TAZ with at least one CC starts as WAITING FOR QC. A TAZ with no CC is automatically FLAG. A TAZ changes to EDITED when uploaded CC data differs from the default CCs or when a user changes a connector, QC note, or other saved review data.</li>
             <li>Mark the TAZ as REVIEWED when the connectors look correct. Right-click a TAZ in the list or on the map to set WAITING FOR QC, FLAG, EDITED, or REVIEWED directly. A zero-CC TAZ always remains FLAG.</li>

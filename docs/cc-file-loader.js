@@ -213,25 +213,39 @@
 
   function normalizeMissingLinkRows(rows) {
     const links = [];
-    const seen = new Set();
+    const byPair = new Map();
     let ignored = 0;
     let duplicates = 0;
     for (const sourceRow of rows || []) {
       const row = normalizedProperties(sourceRow);
       const a = cleanId(row.A);
       const b = cleanId(row.B);
-      const isHereMissing = cleanId(row.HERE_MISS) === "1" || cleanId(row.FCLASS) === "7";
+      const fclassText = cleanId(row.FCLASS);
+      const isHereMissing = cleanId(row.HERE_MISS) === "1" || fclassText === "7" || fclassText === "32";
       if (!a || !b || a === b || !isHereMissing) {
         ignored += 1;
         continue;
       }
       const pairKey = missingLinkPairKey(a, b);
-      if (seen.has(pairKey)) {
+      const existing = byPair.get(pairKey);
+      if (existing) {
         duplicates += 1;
+        existing.records = Math.min(2, existing.records + 1);
         continue;
       }
-      seen.add(pairKey);
-      links.push({ pairKey, a, b });
+      const lanes = Number(row.LANES);
+      const hereMiss = Number(row.HERE_MISS);
+      const link = {
+        pairKey,
+        a,
+        b,
+        records: 1,
+        lanes: Number.isFinite(lanes) ? lanes : 1,
+        hereMiss: Number.isFinite(hereMiss) ? hereMiss : 1,
+        fclass: 32,
+      };
+      byPair.set(pairKey, link);
+      links.push(link);
     }
     return { links, linkCount: links.length, ignored, duplicates, inputRows: (rows || []).length };
   }
@@ -288,7 +302,7 @@
     const result = normalizeMissingLinkRows(rows);
     result.sourceNames = files.map((file) => file.name);
     if (!result.linkCount) {
-      throw new Error("No valid HERE_MISS records were found. Expected A/B fields with HERE_MISS=1 or FCLASS=7.");
+      throw new Error("No valid HERE_MISS records were found. Expected A/B fields with HERE_MISS=1 or FCLASS=32.");
     }
     return result;
   }
