@@ -206,6 +206,36 @@
     return { byTaz, connectorCount: seen.size, ignored, duplicates, inputRows: rows.length };
   }
 
+  function missingLinkPairKey(firstId, secondId) {
+    const ids = [cleanId(firstId), cleanId(secondId)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return `${ids[0]}|${ids[1]}`;
+  }
+
+  function normalizeMissingLinkRows(rows) {
+    const links = [];
+    const seen = new Set();
+    let ignored = 0;
+    let duplicates = 0;
+    for (const sourceRow of rows || []) {
+      const row = normalizedProperties(sourceRow);
+      const a = cleanId(row.A);
+      const b = cleanId(row.B);
+      const isHereMissing = cleanId(row.HERE_MISS) === "1" || cleanId(row.FCLASS) === "7";
+      if (!a || !b || a === b || !isHereMissing) {
+        ignored += 1;
+        continue;
+      }
+      const pairKey = missingLinkPairKey(a, b);
+      if (seen.has(pairKey)) {
+        duplicates += 1;
+        continue;
+      }
+      seen.add(pairKey);
+      links.push({ pairKey, a, b });
+    }
+    return { links, linkCount: links.length, ignored, duplicates, inputRows: (rows || []).length };
+  }
+
   async function loadFiles(fileList, knownTazIds) {
     const files = Array.from(fileList || []);
     if (!files.length) throw new Error("Choose a DBF, CSV, SHP + DBF, GeoJSON, or JSON file.");
@@ -245,5 +275,33 @@
     return result;
   }
 
-  return { cleanId, loadFiles, normalizeRows, parseCsv, parseDbf, parseShp, rowsFromJson };
+  async function loadMissingLinkFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) throw new Error("Choose a HERE_MISS DBF or CSV file.");
+    const rows = [];
+    for (const file of files) {
+      const extension = (file.name.split(".").pop() || "").toLowerCase();
+      if (extension === "dbf") rows.push(...parseDbf(await file.arrayBuffer()));
+      else if (extension === "csv" || extension === "cvs") rows.push(...parseCsv(await file.text()));
+      else throw new Error(`Unsupported HERE_MISS file type: ${file.name}`);
+    }
+    const result = normalizeMissingLinkRows(rows);
+    result.sourceNames = files.map((file) => file.name);
+    if (!result.linkCount) {
+      throw new Error("No valid HERE_MISS records were found. Expected A/B fields with HERE_MISS=1 or FCLASS=7.");
+    }
+    return result;
+  }
+
+  return {
+    cleanId,
+    loadFiles,
+    loadMissingLinkFiles,
+    normalizeRows,
+    normalizeMissingLinkRows,
+    parseCsv,
+    parseDbf,
+    parseShp,
+    rowsFromJson,
+  };
 });

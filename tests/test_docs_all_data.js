@@ -8,12 +8,16 @@ const corePath = path.join(dataRoot, "core.json");
 const manifestPath = path.join(dataRoot, "tiles", "manifest.json");
 const overviewPath = path.join(dataRoot, "tiles", "overview.json");
 const mvtManifestPath = path.join(dataRoot, "mvt", "manifest.json");
+const nodeIndexPath = path.join(dataRoot, "tiles", "node-index.json");
+const defaultCcPath = path.join(root, "input", "default", "cube_taz_cc_public.csv");
+const defaultMissingPath = path.join(root, "input", "default", "HERE_MISS_links.csv");
 const core = JSON.parse(fs.readFileSync(corePath, "utf8"));
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const overview = JSON.parse(fs.readFileSync(overviewPath, "utf8"));
 const mvtManifest = JSON.parse(fs.readFileSync(mvtManifestPath, "utf8"));
+const nodeIndex = JSON.parse(fs.readFileSync(nodeIndexPath, "utf8"));
 
-assert.equal(core.schemaVersion, 4);
+assert.equal(core.schemaVersion, 5);
 assert.equal(manifest.schemaVersion, 1);
 assert.equal(core.count, core.tazOrder.length);
 assert.equal(core.count, core.tazs.length);
@@ -51,6 +55,38 @@ assert.ok(core.connectors.every((item) => typeof item.endBoundaryDist === "numbe
 assert.ok(core.connectors.every((item) => typeof item.interiorFallback === "boolean"));
 assert.ok(core.connectors.every((item) => item.interiorFallback === (item.endBoundaryDist > 200.000001)));
 assert.ok(core.nodeSource);
+assert.deepEqual(core.defaultInputs, {
+  cc: "input/default/cube_taz_cc_public.csv",
+  missingLinks: "input/default/HERE_MISS_links.csv",
+  ccDirectionalRecords: 2930,
+  ccPairs: 1465,
+  missingDirectionalRecords: 22,
+  missingPairs: 11,
+});
+
+function simpleCsvRows(filePath) {
+  const lines = fs.readFileSync(filePath, "utf8").replace(/^\ufeff/, "").trim().split(/\r?\n/);
+  const fields = lines.shift().split(",");
+  return lines.map((line) => Object.fromEntries(line.split(",").map((value, index) => [fields[index], value])));
+}
+
+const expectedCcPairs = new Set();
+for (const row of simpleCsvRows(defaultCcPath)) {
+  if (tazIds.has(String(row.A))) expectedCcPairs.add(`${row.A}|${row.B}`);
+  else if (tazIds.has(String(row.B))) expectedCcPairs.add(`${row.B}|${row.A}`);
+}
+const actualCcPairs = new Set(core.connectors.map((item) => `${item.tazId}|${item.nodeId}`));
+assert.deepEqual([...actualCcPairs].sort(), [...expectedCcPairs].sort());
+
+const pairKey = (a, b) => [String(a), String(b)]
+  .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+  .join("|");
+const expectedMissingPairs = new Set(simpleCsvRows(defaultMissingPath).map((row) => pairKey(row.A, row.B)));
+const actualMissingPairs = new Set(core.defaultMissingLinks.map((item) => item.pairKey));
+assert.deepEqual([...actualMissingPairs].sort(), [...expectedMissingPairs].sort());
+assert.equal(core.defaultMissingLinks.length, 11);
+assert.ok(core.defaultMissingLinks.every((item) => nodeIndex[item.a] && nodeIndex[item.b]));
+assert.ok(core.defaultMissingLinks.every((item) => item.aCoord.every(Number.isFinite) && item.bCoord.every(Number.isFinite)));
 
 let tiledNodeCount = 0;
 const tiledLineIds = new Set();
@@ -83,7 +119,7 @@ for (const connector of core.connectors) {
 }
 let minimumAngle = 180;
 for (const connectors of connectorsByTaz.values()) {
-  assert.ok(connectors.length >= 1 && connectors.length <= 3);
+  assert.ok(connectors.length >= 1);
   const angles = connectors.map((connector) => {
     const coordinates = connector.geom.coordinates;
     const start = coordinates[0];
@@ -95,9 +131,11 @@ for (const connectors of connectorsByTaz.values()) {
       const raw = Math.abs(angles[first] - angles[second]) % 360;
       const separation = Math.min(raw, 360 - raw);
       minimumAngle = Math.min(minimumAngle, separation);
-      assert.ok(separation >= 70 - 1e-9);
     }
   }
+}
+for (const item of core.tazOrder) {
+  assert.equal(item.connectors, connectorsByTaz.get(String(item.id))?.length || 0);
 }
 
 const appSource = fs.readFileSync(path.join(root, "docs", "app.js"), "utf8");
@@ -126,6 +164,8 @@ assert.match(appSource, /updateHoveredTaz/);
 assert.match(appSource, /function exportFinalCc/);
 assert.match(appSource, /function makeCsv/);
 assert.match(appSource, /function resetBrowserData/);
+assert.match(appSource, /state\.data\.defaultMissingLinks/);
+assert.match(appSource, /missingLinksFromStorage/);
 assert.match(appSource, /function getTazStatus/);
 assert.match(appSource, /function exportTazQcStatus/);
 assert.match(appSource, /function drawCentroidTriangle/);

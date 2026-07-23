@@ -25,6 +25,8 @@
         <button id="saveBtn" class="primary hidden">Save Edit</button>
         <button id="addCcBtn">Add CC</button>
         <button id="addMissingLinkBtn">Add Missing Links</button>
+        <button id="loadMissingLinksBtn">Load HERE_Missing File</button>
+        <input id="hereMissingFileInput" class="hidden" type="file" accept=".dbf,.csv,.cvs" />
         <button id="exportMissingLinksBtn">Export HERE_MISS</button>
         <button id="reviewedBtn">Mark Reviewed</button>
         <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
@@ -260,7 +262,8 @@
             <li>To modify a connector, select the connector and click a valid target node on the map. The edit is saved immediately.</li>
             <li>To add a new connector, click Add CC, then choose the target node. The new connector is generated and saved directly.</li>
             <li>To add a missing roadway link, click Add Missing Links, choose the first node, then choose the second node. Any visible detailed node can be used, and candidate nodes highlight on hover.</li>
-            <li>HERE_MISS is a separate map layer. Use Export HERE_MISS to download DBF or CSV; each drawn link produces A-to-B and B-to-A records with LANES=1, HERE_MISS=1, and FCLASS=7.</li>
+            <li>HERE_MISS is a separate map layer. Use Load HERE_Missing File to replace the current layer from a HERE_MISS DBF or CSV. Reverse-direction records are combined into one map link, and the operation can be undone.</li>
+            <li>Use Export HERE_MISS to download DBF or CSV; each drawn or loaded link produces A-to-B and B-to-A records with LANES=1, HERE_MISS=1, and FCLASS=7.</li>
             <li>Use the CC, Missing Links, and TAZ Status tabs in the right panel to review records. Selecting a CC or HERE_MISS link on the map highlights its table row. Right-click a HERE_MISS line or table row to delete it. Drag the left edge of the right panel to resize the tables.</li>
             <li>Use Undo Edit or Redo Edit if needed.</li>
             <li>Every TAZ with at least one CC starts as WAITING FOR QC. A TAZ with no CC is automatically FLAG. A TAZ changes to EDITED when uploaded CC data differs from the default CCs or when a user changes a connector, QC note, or other saved review data.</li>
@@ -268,7 +271,7 @@
             <li>Continue through the remaining TAZs.</li>
             <li>When review is complete, use Final CC Export, choose DBF or CSV, and choose whether to include the matching QCNOTES companion file with A, B, and QC_NOTES fields.</li>
             <li>Use Export TAZ QC Status to download all TAZ statuses and notes as CSV or as a polygon Shapefile ZIP.</li>
-            <li>To discard all browser-saved edits and restore the original published dataset, click Reset Browser Data and confirm. This also removes HERE_MISS links, uploaded CC data, QC notes, reviewed status, and custom layer order.</li>
+            <li>To discard all browser-saved edits and restore the published default CC and HERE_MISS inputs, click Reset Browser Data and confirm. This removes added or imported HERE_MISS changes, uploaded CC data, QC notes, reviewed status, and custom layer order.</li>
           </ol>
           <p>
             Please focus on whether each centroid connector is connected to a reasonable valid node. Major nodes
@@ -291,8 +294,8 @@
 
     <script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
-    <script src="cc-file-loader.js?v=20260721-all-data"></script>
-    <script src="app.js?v=20260722-here-miss-table-zoom"></script>
+    <script src="cc-file-loader.js?v=20260722-here-miss-import"></script>
+    <script src="app.js?v=20260722-default-review-inputs-2"></script>
     <script>
       (() => {
         const showInstructions = () => document.getElementById("instructionsPanel")?.classList.remove("hidden");

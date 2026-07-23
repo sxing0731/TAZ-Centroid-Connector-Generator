@@ -20,6 +20,16 @@ function readStoredJson(key, fallback) {
 }
 
 const storedOtherTazVisibility = Number(readStoredJson(STORAGE_KEYS.otherTazVisibility, 55));
+const storedMissingLinks = readStoredJson(STORAGE_KEYS.missingLinks, null);
+
+function validMissingLinks(value) {
+  return Array.isArray(value)
+    ? value.filter((link) => link && link.a != null && link.b != null
+      && Array.isArray(link.aCoord) && link.aCoord.length >= 2
+      && Array.isArray(link.bCoord) && link.bCoord.length >= 2
+      && link.aCoord.every(Number.isFinite) && link.bCoord.every(Number.isFinite))
+    : [];
+}
 
 const state = {
   canvas: null,
@@ -90,15 +100,8 @@ const state = {
   redoStack: [],
   importedCc: null,
   importedSource: "",
-  missingLinks: (() => {
-    const saved = readStoredJson(STORAGE_KEYS.missingLinks, []);
-    return Array.isArray(saved)
-      ? saved.filter((link) => link && link.a != null && link.b != null
-        && Array.isArray(link.aCoord) && link.aCoord.length >= 2
-        && Array.isArray(link.bCoord) && link.bCoord.length >= 2
-        && link.aCoord.every(Number.isFinite) && link.bCoord.every(Number.isFinite))
-      : [];
-  })(),
+  missingLinks: validMissingLinks(storedMissingLinks),
+  missingLinksFromStorage: Array.isArray(storedMissingLinks),
   layers: { allTaz: true, gstdm: true, majorNodes: true, nonMajorNodes: true, connectors: true, hereMiss: true, centroids: true, tazLabels: true },
   layerOrder: ["tazLabels", "centroids", "connectors", "hereMiss", "majorNodes", "nonMajorNodes", "gstdm", "allTaz"],
   draggedLayer: null,
@@ -443,6 +446,10 @@ async function init() {
 
   status("Loading TAZ and connector core data...");
   state.data = await fetchJson("data/core.json");
+  if (!state.missingLinksFromStorage) {
+    state.missingLinks = validMissingLinks(state.data.defaultMissingLinks);
+  }
+  updateMissingLinkModeUi();
   state.tileManifest = await fetchJson(state.data.tileManifest);
   state.index = state.data;
   state.tazOrder = sortTazOrder(state.data.tazOrder);
@@ -473,6 +480,8 @@ function bindControls() {
   qs("saveBtn").addEventListener("click", saveEdit);
   qs("addCcBtn").addEventListener("click", toggleAddMode);
   qs("addMissingLinkBtn").addEventListener("click", toggleMissingLinkMode);
+  qs("loadMissingLinksBtn").addEventListener("click", () => qs("hereMissingFileInput").click());
+  qs("hereMissingFileInput").addEventListener("change", importMissingLinkFiles);
   qs("exportMissingLinksBtn").addEventListener("click", showMissingLinksExportDialog);
   qs("closeMissingLinksExportDialogBtn").addEventListener("click", hideMissingLinksExportDialog);
   qs("cancelMissingLinksExportBtn").addEventListener("click", hideMissingLinksExportDialog);
@@ -1187,10 +1196,8 @@ async function loadOverviewData() {
   return state.overviewData;
 }
 
-async function ensureImportedNodes(byTaz) {
-  const requestedIds = new Set(
-    Object.values(byTaz || {}).flatMap((rows) => rows.map((row) => CcFileLoader.cleanId(row.nodeId))).filter(Boolean)
-  );
+async function ensureNodesByIds(nodeIds) {
+  const requestedIds = new Set(Array.from(nodeIds || [], CcFileLoader.cleanId).filter(Boolean));
   const missingIds = Array.from(requestedIds).filter((nodeId) => !state.nodeById.has(nodeId));
   if (!missingIds.length) return;
   if (!state.nodeIndex) state.nodeIndex = await fetchCached("node-index", state.tileManifest.nodeIndex);
@@ -1203,6 +1210,12 @@ async function ensureImportedNodes(byTaz) {
     }
   }
   rebuildViewportSpatialIndexes(state.viewportNodes, state.gstdmLines);
+}
+
+async function ensureImportedNodes(byTaz) {
+  return ensureNodesByIds(
+    Object.values(byTaz || {}).flatMap((rows) => rows.map((row) => row.nodeId))
+  );
 }
 
 function syncPayloadSpatialData() {
@@ -1446,7 +1459,7 @@ async function resetImportedCc() {
 
 function resetBrowserData() {
   const confirmed = confirm(
-    "Reset this tool to its initial data? This permanently deletes all browser-saved connector edits, HERE_MISS links, QC notes, reviewed status, uploaded CC data, and custom layer order. Export anything you need first."
+    "Reset this tool to its published defaults? This permanently deletes browser-saved connector edits, added or imported HERE_MISS changes, QC notes, reviewed status, uploaded CC data, and custom layer order. Export anything you need first."
   );
   if (!confirmed) return;
   Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
@@ -1765,6 +1778,65 @@ function drawAllTazPolygons(globalScale) {
   const visible = visibleWorldBounds();
   for (const taz of state.data.tazs) {
     if (boundsIntersect(taz._bounds, visible)) drawGeometry(taz.geom, fill, stroke, width);
+  }
+}
+
+async function importMissingLinkFiles(event) {
+  const files = Array.from(event.target.files || []);
+  event.target.value = "";
+  if (!files.length) return;
+  try {
+    if (state.missingLinks.length && !confirm("Loading a HERE_MISS file replaces the current HERE_MISS layer. Continue?")) return;
+    const result = await CcFileLoader.loadMissingLinkFiles(files);
+    await ensureNodesByIds(result.links.flatMap((link) => [link.a, link.b]));
+    let unavailable = 0;
+    const loadedLinks = result.links.flatMap((link) => {
+      const first = state.nodeById.get(CcFileLoader.cleanId(link.a));
+      const second = state.nodeById.get(CcFileLoader.cleanId(link.b));
+      if (!first || !second) {
+        unavailable += 1;
+        return [];
+      }
+      return [{
+        pairKey: missingLinkPairKey(link.a, link.b),
+        a: String(link.a),
+        b: String(link.b),
+        aCoord: [Number(first.x), Number(first.y)],
+        bCoord: [Number(second.x), Number(second.y)],
+      }];
+    });
+    if (!loadedLinks.length) {
+      throw new Error("No HERE_MISS links could be mapped because their A/B node IDs were not found in the published node index.");
+    }
+    pushEditHistory();
+    stopMissingLinkMode();
+    state.missingLinks = loadedLinks;
+    state.selected = null;
+    state.selectedMissingLink = loadedLinks[0];
+    state.pendingNode = null;
+    state.inspectorTab = "missing";
+    state.layers.hereMiss = true;
+    const layerToggle = document.querySelector('input[data-layer="hereMiss"]');
+    if (layerToggle) layerToggle.checked = true;
+    localStorage.setItem(STORAGE_KEYS.missingLinks, JSON.stringify(state.missingLinks));
+    refreshMapLibreMissingLinks();
+    syncMapLibreLayerState();
+    updateMapLibreSelection();
+    updateMissingLinkModeUi();
+    updateHistoryButtons();
+    renderInspectorTables(true);
+    draw();
+    const details = [];
+    if (result.duplicates) details.push(`${result.duplicates} reverse/duplicate records combined`);
+    if (result.ignored) details.push(`${result.ignored} invalid records ignored`);
+    if (unavailable) details.push(`${unavailable} links referenced unknown nodes`);
+    const detailText = details.length ? `; ${details.join("; ")}` : "";
+    status(`Loaded ${loadedLinks.length} HERE_MISS links from ${result.sourceNames.join(", ")}${detailText}.`);
+    toast(`Loaded ${loadedLinks.length} HERE_MISS links${detailText}.`);
+  } catch (error) {
+    console.error(error);
+    toast(error.message);
+    status(`HERE_MISS import failed: ${error.message}`);
   }
 }
 

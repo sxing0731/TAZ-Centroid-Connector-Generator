@@ -114,6 +114,7 @@ The static application supports:
 - connector addition, deletion, endpoint reassignment, and QC notes;
 - DBF, CSV, SHP plus DBF, GeoJSON, and JSON connector-file loading;
 - replacement of the default connectors with an uploaded connector dataset;
+- published CSV defaults containing 1,465 CC pairs and 11 HERE_MISS pairs;
 - browser-local HERE_MISS link editing between any two visible detailed nodes;
 - hover and selection highlighting for connector nodes, CCs, and HERE_MISS links;
 - a separate HERE_MISS map layer with right-click deletion and undo/redo;
@@ -379,9 +380,9 @@ The static browser application can export the same directed records as DBF or
 CSV. It can also generate an optional QCNOTES companion file containing `A`,
 `B`, and `QC_NOTES`.
 
-Browser-added missing roadway links are stored separately from centroid
-connectors in the `HERE_MISS` layer. Each visually added node pair produces two
-directed export records:
+Missing roadway links are stored separately from centroid connectors in the
+`HERE_MISS` layer. Each published, loaded, or visually added node pair produces
+two directed export records:
 
 | A | B | LANES | HERE_MISS | FCLASS |
 | --- | --- | ---: | ---: | ---: |
@@ -389,8 +390,16 @@ directed export records:
 | Second node | First node | 1 | 1 | 7 |
 
 The `LANES`, `HERE_MISS`, and `FCLASS` fields are numeric in the DBF output.
+The current published defaults are sourced from
+`input/default/cube_taz_cc_public.csv` (2,930 directional records / 1,465 CC
+pairs) and `input/default/HERE_MISS_links.csv` (22 directional records / 11
+missing-link pairs). The generator validates and embeds these inputs so that
+they are the initial CC and HERE_MISS layers rather than uploaded edits.
 HERE_MISS links are saved in browser local storage, can be selected from the map
-or table, deleted through the right-click menu, and restored with Undo.
+or table, deleted through the right-click menu, and restored with Undo. The
+static browser application can also load a HERE_MISS DBF or CSV, combine its
+two directional records into one map link, resolve A/B geometry from the
+published node index, and replace the current layer as an undoable operation.
 
 TAZ review status can be exported as:
 
@@ -542,7 +551,8 @@ In the static QA/QC application:
 7. Mark acceptable TAZs as `REVIEWED`.
 8. Resolve or document every `FLAG`.
 9. Export the final Cube DBF or CSV.
-10. Export HERE_MISS records as DBF or CSV when missing links were added.
+10. Load an existing HERE_MISS DBF/CSV when needed, then export the reviewed
+    HERE_MISS records as DBF or CSV.
 11. Export the TAZ QC status dataset.
 12. Archive the source run, review status, final connectors, HERE_MISS links,
    and QC notes
@@ -565,7 +575,7 @@ node --test tests/*.js
 Current verified results:
 
 - Python: 19 passed
-- JavaScript: 12 scripts passed
+- JavaScript: 13 scripts passed
 
 ## 13. Technology Stack
 
@@ -613,7 +623,7 @@ The project has progressed through six principal phases:
 5. Current migration of the static statewide map to MapLibre and standard MVT,
    together with enhanced file replacement, manual overrides, status export,
    and browser-based review features.
-6. Addition of browser-local HERE_MISS link creation and two-way DBF/CSV export,
+6. Addition of browser-local HERE_MISS link creation, DBF/CSV loading, and two-way export,
    synchronized QAQC tables, selectable and deletable missing links, resizable
    table layout, and table-driven map zoom.
 
@@ -621,7 +631,8 @@ The project has progressed through six principal phases:
 
 The July 22, 2026 development state includes the MapLibre/MVT statewide map,
 replacement CC-file loading, manual override handling, TAZ status export,
-HERE_MISS editing and export, and the three-tab QAQC table interface.
+published CC/HERE_MISS default inputs, HERE_MISS editing, import, and export,
+and the three-tab QAQC table interface.
 
 The current change set has passed the Python and JavaScript automated suites.
 Desktop browser QA has also verified map loading, CC and missing-link row

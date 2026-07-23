@@ -7,6 +7,8 @@ const appSource = fs.readFileSync(path.join(root, "docs", "app.js"), "utf8");
 const htmlSource = fs.readFileSync(path.join(root, "docs", "index.html"), "utf8");
 
 assert.match(htmlSource, /id="addMissingLinkBtn"/, "top toolbar should expose Add Missing Links");
+assert.match(htmlSource, /id="loadMissingLinksBtn"/, "top toolbar should expose HERE_MISS file loading");
+assert.match(htmlSource, /id="hereMissingFileInput"[^>]+accept="\.dbf,\.csv,\.cvs"/, "HERE_MISS loading should accept exported DBF and CSV files");
 assert.match(htmlSource, /id="exportMissingLinksBtn"/, "top toolbar should expose HERE_MISS export");
 assert.match(htmlSource, /data-layer="hereMiss"/, "HERE_MISS should have an independent layer toggle");
 assert.match(htmlSource, /id="missingLinkContextMenu"/, "HERE_MISS should expose a delete context menu");
@@ -16,6 +18,9 @@ assert.match(htmlSource, /data-inspector-tab="taz"/, "right panel should include
 assert.match(htmlSource, /id="inspectorResizer"/, "right table panel should have a resize handle");
 assert.match(appSource, /"here-miss-live": \{ type: "geojson"/, "HERE_MISS should use its own GeoJSON source");
 assert.match(appSource, /function chooseMissingLinkNode\(node\)/, "node-pair editing should be implemented");
+assert.match(appSource, /function importMissingLinkFiles\(event\)/, "HERE_MISS DBF\/CSV import should be implemented");
+assert.match(appSource, /loadMissingLinkFiles\(files\)/, "HERE_MISS import should use the shared file parser");
+assert.match(appSource, /state\.missingLinks = validMissingLinks\(state\.data\.defaultMissingLinks\)/, "published HERE_MISS records should be the initial default");
 assert.match(appSource, /function findMissingLinkAt\(pt\)/, "HERE_MISS lines should be selectable on the map");
 assert.match(appSource, /function deleteSelectedMissingLink\(\)/, "selected HERE_MISS links should be deletable");
 assert.match(appSource, /function zoomToMissingLink\(link\)/, "missing-link table rows should support zooming to their link");
