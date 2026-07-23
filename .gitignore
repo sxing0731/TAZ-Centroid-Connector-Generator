@@ -3,7 +3,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 output/
-input/
+input/*
+!input/default/
+input/default/*
+!input/default/cube_taz_cc_public.csv
+!input/default/HERE_MISS_links.csv
 input_backups/
 *.log
 *.gpkg-wal

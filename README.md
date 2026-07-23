@@ -152,6 +152,15 @@ link detail and is overzoomed for closer views. Nodes are hidden below zoom 10,
 shown as small count-labeled clusters from zoom 10 to 12, and shown at their
 actual locations from zoom 12 onward. Clicking a TAZ in the left list
 zooms directly to that TAZ without a per-TAZ JSON request.
+The published default review inputs are:
+
+- `input/default/cube_taz_cc_public.csv` — 1,465 default CC pairs; and
+- `input/default/HERE_MISS_links.csv` — 11 default HERE_MISS pairs.
+
+The generator validates both directed-record CSVs, rebuilds connector geometry
+from the published TAZ centroids and node layer, and embeds HERE_MISS geometry
+in `core.json`. Browser uploads can replace either default for the current
+browser, while Reset Browser Data restores these published defaults.
 The browser Final CC Export supports DBF or CSV. The optional QCNOTES companion
 contains matching `A`, `B`, and `QC_NOTES` fields for the directed connector
 records; disabling the toggle exports only the main `A/B/FCLASS` file.

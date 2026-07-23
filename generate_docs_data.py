@@ -49,6 +49,8 @@ SOURCE_CRS = (
 )
 SOURCE_TO_MERCATOR = Transformer.from_crs(SOURCE_CRS, "EPSG:3857", always_xy=True)
 SOURCE_TO_WGS84 = Transformer.from_crs(SOURCE_CRS, "EPSG:4326", always_xy=True)
+DEFAULT_CC_PATH = Path("input/default/cube_taz_cc_public.csv")
+DEFAULT_MISSING_LINK_PATH = Path("input/default/HERE_MISS_links.csv")
 
 
 def id_text(value: Any) -> str:
@@ -500,8 +502,11 @@ def write_viewport_bundle(docs_data: Path, payload: dict[str, Any]) -> dict[str,
             "connectors",
         )
     }
+    for key in ("defaultMissingLinks", "defaultInputs"):
+        if key in payload:
+            core[key] = payload[key]
     core.update({
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "connectorNodes": connector_nodes,
         "counts": {
             "tazs": len(payload.get("tazs", [])),
@@ -562,6 +567,145 @@ def link_item(row: Any) -> dict[str, Any]:
         "funcClass": str(row.get("FUNC_CLASS") or ""),
         "geom": geom_json(row.geometry, 10),
     }
+
+
+def read_default_csv(path: Path, required_fields: set[str]) -> pd.DataFrame:
+    if not path.exists():
+        raise SystemExit(f"Default input file not found: {path}")
+    frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+    frame.columns = [str(column).strip().upper() for column in frame.columns]
+    missing = required_fields - set(frame.columns)
+    if missing:
+        raise SystemExit(f"{path} is missing required field(s): {', '.join(sorted(missing))}")
+    return frame
+
+
+def numeric_id_sort(value: str) -> tuple[int, float | str, str]:
+    try:
+        return 0, float(value), value
+    except (TypeError, ValueError):
+        return 1, value, value
+
+
+def missing_pair_key(first_id: str, second_id: str) -> str:
+    first, second = sorted((first_id, second_id), key=numeric_id_sort)
+    return f"{first}|{second}"
+
+
+def apply_default_inputs(payload: dict[str, Any], cc_path: Path, missing_path: Path) -> dict[str, int]:
+    cc_rows = read_default_csv(cc_path, {"A", "B", "FCLASS"})
+    missing_rows = read_default_csv(missing_path, {"A", "B", "LANES", "HERE_MISS", "FCLASS"})
+    taz_ids = {str(item["id"]) for item in payload.get("tazs", [])}
+    taz_by_id = {str(item["id"]): item for item in payload.get("tazs", [])}
+    centroid_by_id = {str(item["id"]): item for item in payload.get("centroids", [])}
+    node_by_id = {str(item["id"]): item for item in payload.get("nodes", [])}
+    previous_by_pair = {
+        (str(item.get("tazId", "")), str(item.get("nodeId", ""))): item
+        for item in payload.get("connectors", [])
+    }
+
+    connectors: list[dict[str, Any]] = []
+    seen_connectors: set[tuple[str, str]] = set()
+    connector_counts: dict[str, int] = defaultdict(int)
+    invalid_cc_rows = 0
+    for row in cc_rows.to_dict("records"):
+        if id_text(row.get("FCLASS")) != "32":
+            invalid_cc_rows += 1
+            continue
+        a = id_text(row.get("A"))
+        b = id_text(row.get("B"))
+        if a in taz_ids and b and a != b:
+            taz_id, node_id = a, b
+        elif b in taz_ids and a and a != b:
+            taz_id, node_id = b, a
+        else:
+            invalid_cc_rows += 1
+            continue
+        key = (taz_id, node_id)
+        if key in seen_connectors:
+            continue
+        seen_connectors.add(key)
+        node = node_by_id.get(node_id)
+        centroid = centroid_by_id.get(taz_id)
+        taz_item = taz_by_id.get(taz_id)
+        if node is None or centroid is None or taz_item is None:
+            raise SystemExit(f"Default CC {taz_id}-{node_id} cannot be resolved in the published TAZ/node data.")
+        centroid_coord = [float(centroid["x"]), float(centroid["y"])]
+        node_coord = [float(node["x"]), float(node["y"])]
+        line = LineString([centroid_coord, node_coord])
+        taz_geometry = shape(taz_item["geom"])
+        end_boundary_dist = float(Point(node_coord).distance(taz_geometry.boundary))
+        outside_len = float(line.difference(taz_geometry).length)
+        previous = previous_by_pair.get(key, {})
+        connector_counts[taz_id] += 1
+        connectors.append({
+            "tazId": taz_id,
+            "ccPt": str(previous.get("ccPt") or f"{taz_id}_INPUT{connector_counts[taz_id]}"),
+            "nodeId": node_id,
+            "density": number(previous.get("density"), 0),
+            "rank": int(number(previous.get("rank"), 0) or 0),
+            "majorLevel": number(node.get("majorLevel")),
+            "outsideLen": outside_len,
+            "endBoundaryDist": end_boundary_dist,
+            "interiorFallback": end_boundary_dist > 200.000001,
+            "lineNodeDist": number(previous.get("lineNodeDist"), 0),
+            "status": "unreviewed",
+            "geom": geom_json(line),
+        })
+    if not connectors or invalid_cc_rows:
+        raise SystemExit(
+            f"Default CC input produced {len(connectors)} connector(s) and {invalid_cc_rows} invalid record(s)."
+        )
+    payload["connectors"] = connectors
+    for item in payload.get("tazOrder", []):
+        item["connectors"] = connector_counts.get(str(item["id"]), 0)
+
+    default_missing_links: list[dict[str, Any]] = []
+    seen_missing_pairs: set[str] = set()
+    invalid_missing_rows = 0
+    for row in missing_rows.to_dict("records"):
+        a = id_text(row.get("A"))
+        b = id_text(row.get("B"))
+        if (
+            not a
+            or not b
+            or a == b
+            or id_text(row.get("LANES")) != "1"
+            or id_text(row.get("HERE_MISS")) != "1"
+            or id_text(row.get("FCLASS")) != "7"
+        ):
+            invalid_missing_rows += 1
+            continue
+        pair_key = missing_pair_key(a, b)
+        if pair_key in seen_missing_pairs:
+            continue
+        seen_missing_pairs.add(pair_key)
+        first = node_by_id.get(a)
+        second = node_by_id.get(b)
+        if first is None or second is None:
+            raise SystemExit(f"Default HERE_MISS {a}-{b} cannot be resolved in the published node data.")
+        default_missing_links.append({
+            "pairKey": pair_key,
+            "a": a,
+            "b": b,
+            "aCoord": [float(first["x"]), float(first["y"])],
+            "bCoord": [float(second["x"]), float(second["y"])],
+        })
+    if not default_missing_links or invalid_missing_rows:
+        raise SystemExit(
+            "Default HERE_MISS input produced "
+            f"{len(default_missing_links)} link(s) and {invalid_missing_rows} invalid record(s)."
+        )
+    payload["defaultMissingLinks"] = default_missing_links
+    payload["defaultInputs"] = {
+        "cc": cc_path.as_posix(),
+        "missingLinks": missing_path.as_posix(),
+        "ccDirectionalRecords": int(len(cc_rows)),
+        "ccPairs": len(connectors),
+        "missingDirectionalRecords": int(len(missing_rows)),
+        "missingPairs": len(default_missing_links),
+    }
+    return {"connectors": len(connectors), "missingLinks": len(default_missing_links)}
 
 
 def merged_gstdm_feature_from_lines(lines: list[list[list[float]]], source_count: int) -> dict[str, Any]:
@@ -828,6 +972,18 @@ def main() -> None:
         action="store_true",
         help="Keep legacy docs/data/taz JSON files after all.json is verified.",
     )
+    parser.add_argument(
+        "--default-cc",
+        type=Path,
+        default=DEFAULT_CC_PATH,
+        help="Directed A/B/FCLASS=32 CSV to publish as the default CC baseline.",
+    )
+    parser.add_argument(
+        "--default-missing-links",
+        type=Path,
+        default=DEFAULT_MISSING_LINK_PATH,
+        help="Directed A/B/LANES/HERE_MISS/FCLASS CSV to publish as default missing links.",
+    )
     args = parser.parse_args()
     docs_data = Path("docs") / "data"
     docs_data.mkdir(parents=True, exist_ok=True)
@@ -844,6 +1000,7 @@ def main() -> None:
         payload = build_from_gpkg()
         augmented_nodes = 0
     merge_payload_gstdm(payload)
+    default_stats = apply_default_inputs(payload, args.default_cc, args.default_missing_links)
     added_nodes = ensure_connector_nodes(payload)
     bundle_stats = write_viewport_bundle(docs_data, payload)
     core_path = docs_data / "core.json"
@@ -851,7 +1008,7 @@ def main() -> None:
     verified_core = json.loads(core_path.read_text(encoding="utf-8"))
     verified_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if (
-        verified_core.get("schemaVersion") != 4
+        verified_core.get("schemaVersion") != 5
         or len(verified_core.get("tazs", [])) != len(verified_core.get("tazOrder", []))
         or verified_core.get("counts", {}).get("nodes") != len(payload.get("nodes", []))
         or verified_manifest.get("schemaVersion") != 1
@@ -875,7 +1032,8 @@ def main() -> None:
         f"({gstdm_properties['sourceFeatureCount']} source links) from {payload['generatedFrom']} "
         f"({bundle_stats['overviewLines']} overview lines, {bundle_stats['coarseClusters']} coarse clusters, "
         f"{bundle_stats['mediumClusters']} medium clusters; {added_nodes} connector endpoint nodes added, "
-        f"{augmented_nodes} full-layer nodes added)"
+        f"{augmented_nodes} full-layer nodes added; {default_stats['connectors']} default CCs and "
+        f"{default_stats['missingLinks']} default HERE_MISS links)"
     )
 
 
