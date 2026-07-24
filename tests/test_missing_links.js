@@ -19,6 +19,8 @@ assert.match(htmlSource, /data-inspector-tab="missing"/, "right panel should inc
 assert.match(htmlSource, /data-inspector-tab="taz"/, "right panel should include a TAZ-status table tab");
 assert.match(htmlSource, /id="inspectorResizer"/, "right table panel should have a resize handle");
 assert.match(htmlSource, /class="toolbar-menu"/, "top toolbar actions should be grouped into dropdown menus");
+assert.match(htmlSource, /<button id="instructionsBtn">Help<\/button>/, "Help should be a direct toolbar button");
+assert.doesNotMatch(htmlSource, /<summary>Help<\/summary>/, "Help should not require opening a dropdown");
 assert.match(appSource, /instructionsBtn"\)\.addEventListener\("click", \(\) => \{[\s\S]*?downloadHelpDocument\(\)/, "Help should download the rules document");
 assert.match(appSource, /const filename = "TAZ_CC_Rules_and_HERE_MISS_Workflow\.docx"/, "Help should use the published DOCX filename");
 assert.match(appSource, /const response = await fetch\(filename, \{ cache: "no-store" \}\)/, "Help should fetch the current published DOCX before downloading it");
