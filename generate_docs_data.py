@@ -11,7 +11,7 @@ from typing import Any
 import geopandas as gpd
 import mapbox_vector_tile
 import pandas as pd
-from pyproj import Transformer
+from pyproj import CRS, Transformer
 from shapely import line_merge
 from shapely.geometry import LineString, MultiLineString, Point, box, shape
 from shapely.ops import transform as shapely_transform
@@ -51,6 +51,8 @@ SOURCE_TO_MERCATOR = Transformer.from_crs(SOURCE_CRS, "EPSG:3857", always_xy=Tru
 SOURCE_TO_WGS84 = Transformer.from_crs(SOURCE_CRS, "EPSG:4326", always_xy=True)
 DEFAULT_CC_PATH = Path("input/default/cube_taz_cc_public.csv")
 DEFAULT_MISSING_LINK_PATH = Path("input/default/HERE_MISS_links.csv")
+DEFAULT_GLOBAL_NODE_PATH = Path("input/GSTDM2025/GSTDM_2025/GSTDM_2025_NODE_0721.shp")
+DEFAULT_GLOBAL_LINK_PATH = Path("input/GSTDM2025/GSTDM_2025/GSTDM_2025_LINK_0721.shp")
 
 
 def id_text(value: Any) -> str:
@@ -328,6 +330,21 @@ def write_maplibre_vector_tiles(
         )
         for item in overview.get("mediumClusters", [])
     ]
+    candidate_node_features = [
+        (
+            to_web_mercator(Point(float(node["x"]), float(node["y"]))),
+            {
+                "node_id": str(node.get("id", "")),
+                "x": float(node["x"]),
+                "y": float(node["y"]),
+                "major_level": number(node.get("majorLevel")),
+                "eligible": True,
+                "outside_ga": bool(node.get("outsideGa")),
+            },
+        )
+        for node in payload.get("nodes", [])
+        if bool(node.get("eligible")) or bool(node.get("outsideGa"))
+    ]
 
     totals = {"tiles": 0, "bytes": 0}
     for zoom in range(MVT_MIN_ZOOM, MVT_DETAIL_ZOOM):
@@ -350,6 +367,9 @@ def write_maplibre_vector_tiles(
         clusters = coarse_clusters if zoom <= 9 else medium_clusters
         for geometry, properties in clusters:
             add_mvt_feature(tile_layers, zoom, "node_clusters", geometry, properties)
+        if zoom >= 11:
+            for geometry, properties in candidate_node_features:
+                add_mvt_feature(tile_layers, zoom, "candidate_nodes", geometry, properties)
         stats = write_mvt_zoom(mvt_root, zoom, tile_layers)
         totals["tiles"] += stats["tiles"]
         totals["bytes"] += stats["bytes"]
@@ -378,6 +398,7 @@ def write_maplibre_vector_tiles(
                 "y": float(node["y"]),
                 "major_level": number(node.get("majorLevel")),
                 "eligible": bool(node.get("eligible")),
+                "outside_ga": bool(node.get("outsideGa")),
             },
         )
     for line_id, coordinates in enumerate(network_lines):
@@ -402,12 +423,19 @@ def write_maplibre_vector_tiles(
         source_bounds[1] = min(source_bounds[1], min_y)
         source_bounds[2] = max(source_bounds[2], max_x)
         source_bounds[3] = max(source_bounds[3], max_y)
+    model_bounds = (payload.get("modelNetwork") or {}).get("bounds")
+    if model_bounds and len(model_bounds) == 4:
+        min_x, min_y, max_x, max_y = to_web_mercator(box(*model_bounds)).bounds
+        source_bounds[0] = min(source_bounds[0], min_x)
+        source_bounds[1] = min(source_bounds[1], min_y)
+        source_bounds[2] = max(source_bounds[2], max_x)
+        source_bounds[3] = max(source_bounds[3], max_y)
     mercator_to_wgs84 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
     west, south = mercator_to_wgs84.transform(source_bounds[0], source_bounds[1])
     east, north = mercator_to_wgs84.transform(source_bounds[2], source_bounds[3])
     manifest = {
         "schemaVersion": 1,
-        "generalizationVersion": 2,
+        "generalizationVersion": 3,
         "format": "mvt",
         "tiles": "data/mvt/{z}/{x}/{y}.pbf",
         "minzoom": MVT_MIN_ZOOM,
@@ -415,7 +443,7 @@ def write_maplibre_vector_tiles(
         "bounds": [west, south, east, north],
         "tileCount": totals["tiles"],
         "bytes": totals["bytes"],
-        "layers": ["taz", "centroids", "connectors", "gstdm", "node_clusters", "nodes"],
+        "layers": ["taz", "centroids", "connectors", "gstdm", "node_clusters", "candidate_nodes", "nodes"],
         "generalization": {
             "method": "topology-preserving-simplify",
             "simplifyFeetByZoom": OVERVIEW_SIMPLIFY_FEET_BY_ZOOM,
@@ -494,6 +522,8 @@ def write_viewport_bundle(docs_data: Path, payload: dict[str, Any]) -> dict[str,
         for key in (
             "generatedFrom",
             "nodeSource",
+            "networkSource",
+            "modelNetwork",
             "count",
             "contextFeet",
             "tazOrder",
@@ -608,6 +638,7 @@ def apply_default_inputs(payload: dict[str, Any], cc_path: Path, missing_path: P
     seen_connectors: set[tuple[str, str]] = set()
     connector_counts: dict[str, int] = defaultdict(int)
     invalid_cc_rows = 0
+    skipped_outside_taz_rows = 0
     for row in cc_rows.to_dict("records"):
         if id_text(row.get("FCLASS")) != "32":
             invalid_cc_rows += 1
@@ -619,7 +650,10 @@ def apply_default_inputs(payload: dict[str, Any], cc_path: Path, missing_path: P
         elif b in taz_ids and a and a != b:
             taz_id, node_id = b, a
         else:
-            invalid_cc_rows += 1
+            # A Global 2025 baseline also contains TAZs outside this smaller
+            # New-TAZ core layer.  Keep one authoritative input file and apply
+            # only the reciprocal rows belonging to the core TAZ IDs here.
+            skipped_outside_taz_rows += 1
             continue
         key = (taz_id, node_id)
         if key in seen_connectors:
@@ -708,8 +742,10 @@ def apply_default_inputs(payload: dict[str, Any], cc_path: Path, missing_path: P
     payload["defaultInputs"] = {
         "cc": cc_path.as_posix(),
         "missingLinks": missing_path.as_posix(),
-        "ccDirectionalRecords": int(len(cc_rows)),
+        "ccSourceDirectionalRecords": int(len(cc_rows)),
+        "ccDirectionalRecords": len(connectors) * 2,
         "ccPairs": len(connectors),
+        "ccSkippedOutsideCore": skipped_outside_taz_rows,
         "missingDirectionalRecords": int(len(missing_rows)),
         "missingPairs": len(default_missing_links),
     }
@@ -747,6 +783,121 @@ def merged_gstdm_feature(links: list[dict[str, Any]]) -> dict[str, Any]:
         elif geometry.get("type") == "MultiLineString":
             lines.extend(line for line in (geometry.get("coordinates") or []) if len(line) >= 2)
     return merged_gstdm_feature_from_lines(lines, len(links))
+
+
+def apply_global_model_network(
+    payload: dict[str, Any],
+    node_path: Path,
+    link_path: Path,
+) -> dict[str, int]:
+    """Replace the published node/link layers with the full GSTDM 2025 model network."""
+    if not node_path.exists():
+        raise SystemExit(f"Global GSTDM node source not found: {node_path}")
+    if not link_path.exists():
+        raise SystemExit(f"Global GSTDM link source not found: {link_path}")
+
+    nodes = gpd.read_file(node_path, columns=["N"])
+    links = gpd.read_file(link_path, columns=["A", "B", "LINK_ID", "FUNC_CLASS", "NONGA"])
+    if nodes.crs is None or links.crs is None:
+        raise SystemExit("Global GSTDM node/link sources must define a projected CRS.")
+    if nodes.crs != links.crs:
+        raise SystemExit(f"Global GSTDM node/link CRS mismatch: {nodes.crs} versus {links.crs}")
+    expected_crs = CRS.from_user_input(SOURCE_CRS)
+    if CRS.from_user_input(nodes.crs) != expected_crs:
+        raise SystemExit(f"Global GSTDM sources must use {expected_crs.name}; found {nodes.crs}.")
+    if not nodes.geom_type.eq("Point").all():
+        raise SystemExit("Global GSTDM node source must contain Point geometry only.")
+    if not links.geom_type.isin(["LineString", "MultiLineString"]).all():
+        raise SystemExit("Global GSTDM link source must contain line geometry only.")
+
+    a_ids = pd.to_numeric(links["A"], errors="coerce").astype("Int64")
+    b_ids = pd.to_numeric(links["B"], errors="coerce").astype("Int64")
+    if a_ids.isna().any() or b_ids.isna().any():
+        raise SystemExit("Global GSTDM links contain blank or non-numeric A/B node IDs.")
+    nonga_mask = pd.to_numeric(links["NONGA"], errors="coerce").fillna(0).eq(1)
+    nonga_nodes = set(a_ids[nonga_mask].astype("int64")) | set(b_ids[nonga_mask].astype("int64"))
+    ga_nodes = set(a_ids[~nonga_mask].astype("int64")) | set(b_ids[~nonga_mask].astype("int64"))
+    outside_ga_nodes = nonga_nodes - ga_nodes
+
+    func_class = pd.to_numeric(links["FUNC_CLASS"], errors="coerce")
+    endpoint_levels = pd.concat(
+        [
+            pd.DataFrame({"node": a_ids, "level": func_class}),
+            pd.DataFrame({"node": b_ids, "level": func_class}),
+        ],
+        ignore_index=True,
+    ).dropna()
+    minimum_levels = endpoint_levels.groupby("node", sort=False)["level"].min().to_dict()
+
+    node_items: list[dict[str, Any]] = []
+    seen_nodes: set[int] = set()
+    for raw_id, geometry in zip(nodes["N"], nodes.geometry):
+        node_id = int(raw_id)
+        if node_id in seen_nodes:
+            raise SystemExit(f"Global GSTDM node source contains duplicate N={node_id}.")
+        if geometry is None or geometry.is_empty:
+            raise SystemExit(f"Global GSTDM node N={node_id} has blank geometry.")
+        seen_nodes.add(node_id)
+        major_level = number(minimum_levels.get(node_id))
+        outside_ga = node_id in outside_ga_nodes
+        node_items.append(
+            {
+                "id": str(node_id),
+                "x": round(float(geometry.x), ROUND_DIGITS),
+                "y": round(float(geometry.y), ROUND_DIGITS),
+                "majorLevel": major_level,
+                "majorInt": "N" if outside_ga or major_level is None or major_level > 2 else "Y",
+                "eligible": bool(outside_ga or (major_level is not None and major_level > 2)),
+                "outsideGa": outside_ga,
+            }
+        )
+    missing_endpoint_nodes = (set(a_ids.astype("int64")) | set(b_ids.astype("int64"))) - seen_nodes
+    if missing_endpoint_nodes:
+        sample = ", ".join(str(value) for value in sorted(missing_endpoint_nodes)[:5])
+        raise SystemExit(f"Global GSTDM links reference {len(missing_endpoint_nodes)} missing nodes; sample: {sample}")
+    unreferenced_nodes = seen_nodes - (set(a_ids.astype("int64")) | set(b_ids.astype("int64")))
+    if unreferenced_nodes:
+        raise SystemExit(f"Global GSTDM node source contains {len(unreferenced_nodes)} unreferenced nodes.")
+
+    pair_min = a_ids.where(a_ids <= b_ids, b_ids)
+    pair_max = b_ids.where(a_ids <= b_ids, a_ids)
+    pair_keys = pair_min.astype(str) + "|" + pair_max.astype(str)
+    unique_links = links.loc[~pair_keys.duplicated(keep="first")]
+    lines: list[list[list[float]]] = []
+    for geometry in unique_links.geometry:
+        if geometry.geom_type == "LineString":
+            lines.append(rounded(list(geometry.simplify(10, preserve_topology=True).coords)))
+        else:
+            for part in geometry.geoms:
+                lines.append(rounded(list(part.simplify(10, preserve_topology=True).coords)))
+    feature = merged_gstdm_feature_from_lines(lines, len(unique_links))
+    feature["properties"].update(
+        {
+            "directionalSourceFeatureCount": int(len(links)),
+            "outsideGaSourceFeatureCount": int(nonga_mask.sum()),
+        }
+    )
+
+    payload["nodes"] = node_items
+    payload["gstdmFeature"] = feature
+    payload["nodeSource"] = node_path.as_posix()
+    payload["networkSource"] = link_path.as_posix()
+    payload["modelNetwork"] = {
+        "name": "GSTDM 2025 global model network",
+        "nodeSource": node_path.as_posix(),
+        "linkSource": link_path.as_posix(),
+        "nodeCount": len(node_items),
+        "outsideGaNodeCount": len(outside_ga_nodes),
+        "directionalLinkCount": int(len(links)),
+        "displayLinkCount": int(len(unique_links)),
+        "bounds": rounded([float(value) for value in links.total_bounds]),
+    }
+    return {
+        "nodes": len(node_items),
+        "outsideGaNodes": len(outside_ga_nodes),
+        "directionalLinks": int(len(links)),
+        "displayLinks": int(len(unique_links)),
+    }
 
 
 def merge_payload_gstdm(payload: dict[str, Any]) -> None:
@@ -992,6 +1143,18 @@ def main() -> None:
         default=DEFAULT_MISSING_LINK_PATH,
         help="Directed A/B/LANES/HERE_MISS/FCLASS CSV to publish as default missing links.",
     )
+    parser.add_argument(
+        "--global-nodes",
+        type=Path,
+        default=DEFAULT_GLOBAL_NODE_PATH,
+        help="Full GSTDM model node Shapefile; nodes outside Georgia are published as green/eligible.",
+    )
+    parser.add_argument(
+        "--global-links",
+        type=Path,
+        default=DEFAULT_GLOBAL_LINK_PATH,
+        help="Full GSTDM model link Shapefile that replaces the previous display network.",
+    )
     args = parser.parse_args()
     docs_data = Path("docs") / "data"
     docs_data.mkdir(parents=True, exist_ok=True)
@@ -1008,6 +1171,7 @@ def main() -> None:
         payload = build_from_gpkg()
         augmented_nodes = 0
     merge_payload_gstdm(payload)
+    global_network_stats = apply_global_model_network(payload, args.global_nodes, args.global_links)
     default_stats = apply_default_inputs(payload, args.default_cc, args.default_missing_links)
     added_nodes = ensure_connector_nodes(payload)
     bundle_stats = write_viewport_bundle(docs_data, payload)
@@ -1041,7 +1205,10 @@ def main() -> None:
         f"({bundle_stats['overviewLines']} overview lines, {bundle_stats['coarseClusters']} coarse clusters, "
         f"{bundle_stats['mediumClusters']} medium clusters; {added_nodes} connector endpoint nodes added, "
         f"{augmented_nodes} full-layer nodes added; {default_stats['connectors']} default CCs and "
-        f"{default_stats['missingLinks']} default HERE_MISS links)"
+        f"{default_stats['missingLinks']} default HERE_MISS links; "
+        f"{global_network_stats['outsideGaNodes']} outside-GA nodes green/eligible; "
+        f"{global_network_stats['directionalLinks']} directional links reduced to "
+        f"{global_network_stats['displayLinks']} display links)"
     )
 
 

@@ -17,14 +17,21 @@ const statusFactory = new Function(
 const state = {
   edits: {},
   importedCc: null,
-  connectorCountsByTaz: new Map([["1", 2], ["2", 0]]),
-  connectorsByTaz: new Map([["1", [{ nodeId: "10" }, { nodeId: "20" }]]]),
+  connectorCountsByTaz: new Map([["1", 2], ["2", 0], ["3", 2]]),
+  connectorsByTaz: new Map([
+    ["1", [{ nodeId: "10" }, { nodeId: "20" }]],
+    ["3", [{ nodeId: "40" }, { nodeId: "50" }]],
+  ]),
+  newTazIds: new Set(["3"]),
 };
 const cleanId = (value) => String(value).replace(/\.0+$/, "");
 const { getTazStatus, markTazEdited } = statusFactory(state, { cleanId }, ["WAITING FOR QC", "FLAG", "EDITED", "REVIEWED"]);
 
 assert.equal(getTazStatus("1"), "WAITING FOR QC", "default TAZ status should wait for QC");
 assert.equal(getTazStatus("2"), "FLAG", "a TAZ with no connectors should be flagged");
+assert.equal(getTazStatus("3"), "REVIEWED", "Global TAZs that belong to New TAZ should default to reviewed");
+state.edits["3"] = { qcStatus: "EDITED" };
+assert.equal(getTazStatus("3"), "EDITED", "a saved Global edit should override the New TAZ reviewed default");
 state.importedCc = new Map([["1", [{ nodeId: "20" }, { nodeId: "10" }]]]);
 assert.equal(getTazStatus("1"), "WAITING FOR QC", "same uploaded A/B pairs should remain waiting for QC");
 state.importedCc = new Map([["1", [{ nodeId: "10" }, { nodeId: "30" }]]]);

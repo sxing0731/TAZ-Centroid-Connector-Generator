@@ -1,0 +1,287 @@
+{
+  "analysis_date": "2026-07-24",
+  "comparison_basis": {
+    "pre_generated_cc": "output\\019f9222-2c62-7303-abf3-14e7f9c9bc0e\\shared_node_repair_staging\\cube_taz_cc_public.csv",
+    "human_edited_cc": "input\\default\\cube_taz_cc_public.csv",
+    "pre_generated_here_miss": "analysis\\human_edit_loopback_20260724\\here_miss_baseline_reconstructed_17_pairs.csv",
+    "pre_generated_here_miss_reconstruction_note": "Reconstructed from the first 17 ordered pairs in input/default/HERE_MISS_links.csv, using the pre-refresh published count documented in README.md and PROJECT_SUMMARY.md",
+    "human_edited_here_miss": "input\\default\\HERE_MISS_links.csv",
+    "connector_geometry_pre": "output\\019f9222-2c62-7303-abf3-14e7f9c9bc0e\\shared_node_repair_staging\\GSTDM2025_TAZ_CC_LINK.shp",
+    "connector_geometry_post": "output\\019f9222-2c62-7303-abf3-14e7f9c9bc0e\\baseline_20260724_input_1_staging\\GSTDM2025_TAZ_CC_LINK.shp",
+    "sha256": {
+      "pre_generated_cc": "6e8f2aa81daf67d4dd693009eedccbe19ad94a50f52756a50c595e738bb162a8",
+      "human_edited_cc": "7c1ff0f83d0fc197cdb0716c32f6d1b2ab96fe1f7a4cff3271db01fe0b556300",
+      "pre_generated_here_miss_reconstructed": "e12a14808454f14948d8c3df552f1080361825dad0948e263f4a3cbba63d5570",
+      "human_edited_here_miss": "1a00934551c8df244384fa6fda95aed6e82f80d5d0c99812095eb70ec3ee9baa",
+      "global_review_index": "f95207346f0be9db2e3b9797794875e7e3b7344439f6fd4d918b32f57079e86d"
+    }
+  },
+  "quality_checks": {
+    "pre_cc": {
+      "rows": 29846,
+      "pairs": 14923,
+      "columns": [
+        "A",
+        "B",
+        "FCLASS"
+      ],
+      "duplicate_directed_rows": 0,
+      "missing_reverse_records": 0,
+      "self_loops": 0
+    },
+    "post_cc": {
+      "rows": 29842,
+      "pairs": 14921,
+      "columns": [
+        "A",
+        "B",
+        "FCLASS"
+      ],
+      "duplicate_directed_rows": 0,
+      "missing_reverse_records": 0,
+      "self_loops": 0
+    },
+    "pre_here_miss": {
+      "rows": 34,
+      "pairs": 17,
+      "columns": [
+        "A",
+        "B",
+        "LANES",
+        "HERE_MISS",
+        "FCLASS"
+      ],
+      "duplicate_directed_rows": 0,
+      "missing_reverse_records": 0,
+      "self_loops": 0
+    },
+    "post_here_miss": {
+      "rows": 56,
+      "pairs": 28,
+      "columns": [
+        "A",
+        "B",
+        "LANES",
+        "HERE_MISS",
+        "FCLASS"
+      ],
+      "duplicate_directed_rows": 0,
+      "missing_reverse_records": 0,
+      "self_loops": 0
+    },
+    "post_cc_all_fclass_32": true,
+    "post_here_miss_all_defaults": {
+      "lanes_1": true,
+      "here_miss_1": true,
+      "fclass_32": true
+    }
+  },
+  "cc_change_scope": {
+    "pre_pairs": 14923,
+    "post_pairs": 14921,
+    "net_pairs": -2,
+    "removed_pairs": 42,
+    "added_pairs": 40,
+    "matched_within_taz_replacements": 35,
+    "unmatched_deletions": 7,
+    "unmatched_additions": 5,
+    "changed_tazs": 41,
+    "changed_taz_min": 24,
+    "changed_taz_max": 992,
+    "all_changed_tazs_in_block_0000": true,
+    "block_0000_pre_pairs": 2597,
+    "block_0000_post_pairs": 2595,
+    "removed_share_of_block_0000_pre_pairs_pct": 1.6173,
+    "changed_taz_share_of_block_0000_pct": 4.1,
+    "changed_taz_ids": [
+      "24",
+      "45",
+      "51",
+      "245",
+      "263",
+      "272",
+      "287",
+      "288",
+      "295",
+      "354",
+      "406",
+      "407",
+      "434",
+      "439",
+      "495",
+      "496",
+      "569",
+      "616",
+      "648",
+      "649",
+      "659",
+      "660",
+      "662",
+      "670",
+      "709",
+      "712",
+      "749",
+      "751",
+      "753",
+      "754",
+      "755",
+      "774",
+      "905",
+      "928",
+      "932",
+      "944",
+      "947",
+      "952",
+      "972",
+      "989",
+      "992"
+    ],
+    "block_0000_pre_degree_distribution": {
+      "1": 2,
+      "2": 2392,
+      "3": 169,
+      "4": 32,
+      "5": 2
+    },
+    "block_0000_post_degree_distribution": {
+      "1": 2,
+      "2": 2359,
+      "3": 189,
+      "4": 40,
+      "5": 5
+    },
+    "block_0000_pre_major_level_distribution": {
+      "2": 61,
+      "3": 584,
+      "4": 1814,
+      "5": 138
+    },
+    "block_0000_post_major_level_distribution": {
+      "2": 56,
+      "3": 583,
+      "4": 1819,
+      "5": 137
+    },
+    "block_0000_pre_ineligible_connector_count": 61,
+    "block_0000_post_ineligible_connector_count": 56
+  },
+  "cc_replacement_patterns": {
+    "endpoint_shift_ft": {
+      "min": 96.884,
+      "p25": 404.214,
+      "median": 756.28,
+      "p75": 1738.485,
+      "max": 3802.397
+    },
+    "angle_change_deg": {
+      "min": 0.765,
+      "p25": 6.072,
+      "median": 8.434,
+      "p75": 18.532,
+      "max": 89.071
+    },
+    "old_length_ft": {
+      "min": 529.67,
+      "p25": 2775.792,
+      "median": 3985.635,
+      "p75": 5340.22,
+      "max": 9422.57
+    },
+    "new_length_ft": {
+      "min": 1096.929,
+      "p25": 2314.332,
+      "median": 3987.593,
+      "p75": 5763.216,
+      "max": 9270.677
+    },
+    "length_delta_ft": {
+      "min": -3334.018,
+      "p25": -260.471,
+      "median": 54.617,
+      "p75": 366.8,
+      "max": 1539.935
+    },
+    "shorter_count": 16,
+    "longer_count": 18,
+    "roughly_same_length_count": 1,
+    "old_outside_taz_length_ft": {
+      "min": 0.0,
+      "p25": 0.0,
+      "median": 0.0,
+      "p75": 0.0,
+      "max": 67.114
+    },
+    "new_outside_taz_length_ft": {
+      "min": 0.0,
+      "p25": 0.0,
+      "median": 0.0,
+      "p75": 0.0,
+      "max": 10.152
+    },
+    "outside_taz_delta_ft": {
+      "min": -67.114,
+      "p25": 0.0,
+      "median": 0.0,
+      "p75": 0.0,
+      "max": 10.152
+    },
+    "outside_taz_improved_count": 3,
+    "outside_taz_worsened_count": 3,
+    "outside_taz_roughly_same_count": 29,
+    "old_degree": {
+      "min": 2.0,
+      "p25": 2.0,
+      "median": 2.0,
+      "p75": 2.0,
+      "max": 4.0
+    },
+    "new_degree": {
+      "min": 2.0,
+      "p25": 3.0,
+      "median": 3.0,
+      "p75": 4.0,
+      "max": 5.0
+    },
+    "degree_increased_count": 30,
+    "degree_decreased_count": 1,
+    "degree_unchanged_count": 4,
+    "major_level_transitions": {
+      "3->3": 14,
+      "3->4": 2,
+      "4->3": 1,
+      "4->4": 18
+    },
+    "same_street_name_count": 32,
+    "same_street_name_pct": 91.4286,
+    "angle_change_le_20_deg_count": 26,
+    "endpoint_shift_le_1800_ft_count": 29,
+    "high_confidence_intersection_shift_count": 23,
+    "high_confidence_intersection_shift_pct": 65.7143,
+    "removed_nodes_that_were_shared_node_repair_choices": 0
+  },
+  "here_miss_change_scope": {
+    "pre_pairs": 17,
+    "post_pairs": 28,
+    "added_pairs": 11,
+    "removed_pairs": 0,
+    "added_length_ft": {
+      "min": 34.283,
+      "p25": 43.207,
+      "median": 46.62,
+      "p75": 65.507,
+      "max": 91.97
+    },
+    "preexisting_length_ft": {
+      "min": 34.355,
+      "p25": 49.799,
+      "median": 54.9,
+      "p75": 63.287,
+      "max": 246.736
+    },
+    "added_pairs_already_directly_linked_in_gstdm": 0,
+    "added_pairs_touching_changed_cc_nodes": 1,
+    "added_pairs_touching_added_cc_nodes": 1,
+    "added_pairs_with_shared_street_name": 10,
+    "added_pairs_with_shared_street_name_pct": 90.9091
+  }
+}

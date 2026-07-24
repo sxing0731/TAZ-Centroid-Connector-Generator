@@ -18,9 +18,11 @@ assert.match(htmlSource, /data-inspector-tab="cc"/, "right panel should include 
 assert.match(htmlSource, /data-inspector-tab="missing"/, "right panel should include a missing-link table tab");
 assert.match(htmlSource, /data-inspector-tab="taz"/, "right panel should include a TAZ-status table tab");
 assert.match(htmlSource, /id="inspectorResizer"/, "right table panel should have a resize handle");
-assert.match(htmlSource, /class="toolbar-menu"/, "top toolbar actions should be grouped into dropdown menus");
-assert.match(htmlSource, /<button id="instructionsBtn">Help<\/button>/, "Help should be a direct toolbar button");
-assert.doesNotMatch(htmlSource, /<summary>Help<\/summary>/, "Help should not require opening a dropdown");
+assert.match(htmlSource, /class="toolbar-edit-expanded"/, "edit actions should remain expanded in the top toolbar");
+assert.match(htmlSource, /<summary>INPUT<\/summary>/, "file loading should be grouped under INPUT");
+assert.match(htmlSource, /<summary>OUTPUT<\/summary>/, "exports should be grouped under OUTPUT");
+assert.match(htmlSource, /id="instructionsBtn" class="toolbar-direct-help">Help<\/button>/, "Help should remain a direct toolbar button");
+assert.doesNotMatch(htmlSource, /<summary>Help<\/summary>/, "Help should not be a dropdown");
 assert.match(appSource, /instructionsBtn"\)\.addEventListener\("click", \(\) => \{[\s\S]*?downloadHelpDocument\(\)/, "Help should download the rules document");
 assert.match(appSource, /const filename = "TAZ_CC_Rules_and_HERE_MISS_Workflow\.docx"/, "Help should use the published DOCX filename");
 assert.match(appSource, /const response = await fetch\(filename, \{ cache: "no-store" \}\)/, "Help should fetch the current published DOCX before downloading it");
@@ -43,17 +45,44 @@ assert.match(appSource, /function appendEditableTableCell/, "table attributes sh
 assert.match(appSource, /function editConnectorTableField/, "CC table edits should update connector data");
 assert.match(appSource, /function editMissingLinkTableField/, "missing-link table edits should update link data");
 assert.match(appSource, /function editTazNote/, "TAZ table notes should be editable");
+assert.match(appSource, /hereMiss: 1,\s+fclass: 32,/, "missing-link defaults should be HERE_MISS=1 and FCLASS=32");
+assert.doesNotMatch(appSource, /fclass:\s*7/, "map features must not publish the old FCLASS=7 value");
+
+const defaults = { lanes: 1, hereMiss: 1, fclass: 32 };
+const mapStart = appSource.indexOf("function missingLinkGeoJson");
+const mapEnd = appSource.indexOf("function centroidTriangleImage", mapStart);
+assert.ok(mapStart >= 0 && mapEnd > mapStart, "missing-link map helper should be extractable");
+const mapFactory = new Function(
+  "state",
+  "projectedGeometryToLonLat",
+  "MISSING_LINK_DEFAULTS",
+  `${appSource.slice(mapStart, mapEnd)}; return missingLinkGeoJson();`
+);
+const mapped = mapFactory(
+  { missingLinks: [{ a: "101", b: "202", aCoord: [1, 2], bCoord: [3, 4], pairKey: "101|202" }] },
+  (geometry) => geometry,
+  defaults
+);
+assert.deepStrictEqual(mapped.features[0].properties, {
+  pair_key: "101|202",
+  a: "101",
+  b: "202",
+  lanes: 1,
+  here_miss: 1,
+  fclass: 32,
+});
 
 const exportStart = appSource.indexOf("function missingLinkExportRows");
 const exportEnd = appSource.indexOf("function tazQcStatusRows", exportStart);
 assert.ok(exportStart >= 0 && exportEnd > exportStart, "missing-link export helper should be extractable");
 const exportFactory = new Function(
   "state",
+  "MISSING_LINK_DEFAULTS",
   `${appSource.slice(exportStart, exportEnd)}; return missingLinkExportRows();`
 );
 const rows = exportFactory({
   missingLinks: [{ a: "101", b: "202", aCoord: [1, 2], bCoord: [3, 4], pairKey: "101|202" }],
-});
+}, defaults);
 assert.deepStrictEqual(rows, [
   { A: "101", B: "202", LANES: 1, HERE_MISS: 1, FCLASS: 32 },
   { A: "202", B: "101", LANES: 1, HERE_MISS: 1, FCLASS: 32 },

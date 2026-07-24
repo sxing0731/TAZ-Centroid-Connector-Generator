@@ -1,12 +1,21 @@
 const STORAGE_KEYS = Object.freeze({
+  edits: "tazGlobalQaqcEdits_20260724_input1",
+  importedCc: "tazGlobalQaqcImportedCc_20260724_input1",
+  missingLinks: "tazQaqcMissingLinks_20260724_input1",
+  inspectorWidth: "tazQaqcInspectorWidth",
+  layerOrder: "tazGlobalLayerOrder",
+  otherTazVisibility: "tazGlobalOtherTazVisibility",
+});
+const LEGACY_NEW_STORAGE_KEYS = Object.freeze({
   edits: "tazQaqcEdits",
   importedCc: "tazQaqcImportedCc",
-  missingLinks: "tazQaqcMissingLinks",
-  inspectorWidth: "tazQaqcInspectorWidth",
-  layerOrder: "tazLayerOrder",
-  otherTazVisibility: "tazOtherTazVisibility",
 });
 const TAZ_STATUSES = Object.freeze(["WAITING FOR QC", "FLAG", "EDITED", "REVIEWED"]);
+const MISSING_LINK_DEFAULTS = Object.freeze({
+  lanes: 1,
+  hereMiss: 1,
+  fclass: 32,
+});
 
 function readStoredJson(key, fallback) {
   try {
@@ -31,9 +40,9 @@ function validMissingLinks(value) {
       .map((link) => ({
         ...link,
         records: Math.max(1, Math.min(2, Number(link.records) || 2)),
-        lanes: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : 1,
-        hereMiss: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : 1,
-        fclass: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : 32,
+        lanes: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : MISSING_LINK_DEFAULTS.lanes,
+        hereMiss: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : MISSING_LINK_DEFAULTS.hereMiss,
+        fclass: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : MISSING_LINK_DEFAULTS.fclass,
       }))
     : [];
 }
@@ -44,6 +53,7 @@ const state = {
   width: 0,
   height: 0,
   data: null,
+  newData: null,
   index: null,
   tileManifest: null,
   viewportCache: new Map(),
@@ -64,6 +74,8 @@ const state = {
   tazById: new Map(),
   centroidById: new Map(),
   connectorsByTaz: new Map(),
+  newConnectorsByTaz: new Map(),
+  newTazIds: new Set(),
   nodeById: new Map(),
   nodeGrid: new Map(),
   linkGrid: new Map(),
@@ -73,7 +85,15 @@ const state = {
   gstdmCacheKey: "",
   connectorGrid: new Map(),
   globalConnectors: [],
+  newConnectors: [],
   connectorCountsByTaz: new Map(),
+  globalReviewChunks: null,
+  globalReviewChunkByTaz: new Map(),
+  globalReviewChunkUrls: new Map(),
+  globalReviewChunkPromises: new Map(),
+  loadedGlobalReviewChunks: new Set(),
+  activeGlobalReviewChunk: null,
+  dataIndexesReady: false,
   selected: null,
   selectedMissingLink: null,
   pendingNode: null,
@@ -110,8 +130,30 @@ const state = {
   importedSource: "",
   missingLinks: validMissingLinks(storedMissingLinks),
   missingLinksFromStorage: Array.isArray(storedMissingLinks),
-  layers: { allTaz: true, gstdm: true, majorNodes: true, nonMajorNodes: true, connectors: true, hereMiss: true, centroids: true, tazLabels: true },
-  layerOrder: ["tazLabels", "centroids", "connectors", "hereMiss", "majorNodes", "nonMajorNodes", "gstdm", "allTaz"],
+  layers: {
+    allTaz: true,
+    gstdm: true,
+    majorNodes: true,
+    nonMajorNodes: true,
+    connectors: true,
+    hereMiss: true,
+    centroids: true,
+    tazLabels: true,
+    newTaz: false,
+    newConnectors: false,
+  },
+  layerOrder: [
+    "tazLabels",
+    "centroids",
+    "connectors",
+    "hereMiss",
+    "newConnectors",
+    "newTaz",
+    "majorNodes",
+    "nonMajorNodes",
+    "gstdm",
+    "allTaz",
+  ],
   draggedLayer: null,
   layerDragPointerId: null,
   inspectorNoteKey: null,
@@ -122,7 +164,15 @@ const state = {
   hoveredNodeId: null,
   hoveredNode: null,
   statusMenuTazId: null,
+  crossTazConflictTazIds: new Set(),
+  crossTazConflictNodesByTaz: new Map(),
+  crossTazConflictFilterReady: false,
+  crossTazConflictFilterLoading: false,
+  changed607TazIds: new Set(),
+  autoFixedSharedTazIds: new Set(),
   edits: readStoredJson(STORAGE_KEYS.edits, {}),
+  legacyNewEdits: readStoredJson(LEGACY_NEW_STORAGE_KEYS.edits, {}),
+  legacyNewImportedCc: readStoredJson(LEGACY_NEW_STORAGE_KEYS.importedCc, null),
 };
 
 const qs = (id) => document.getElementById(id);
@@ -143,23 +193,25 @@ function status(message) {
 }
 
 const MAPLIBRE_LAYER_GROUPS = Object.freeze({
-  allTaz: ["taz-fill", "taz-outline", "taz-hover-fill", "taz-hover-outline", "taz-current-fill", "taz-current-outline"],
+  allTaz: ["global-taz-fill", "global-taz-outline", "global-taz-hover-fill", "global-taz-hover-outline", "global-taz-current-fill", "global-taz-current-outline"],
   gstdm: ["gstdm-links"],
   majorNodes: ["major-nodes"],
-  nonMajorNodes: ["node-clusters", "node-cluster-count", "non-major-nodes"],
+  nonMajorNodes: ["node-clusters", "node-cluster-count", "candidate-nodes-preview", "non-major-nodes"],
   connectors: ["connectors-live", "current-taz-connectors", "connector-selected", "connector-labels", "current-connector-labels"],
   hereMiss: ["here-miss-links", "here-miss-selected"],
-  centroids: ["centroid-markers", "current-centroid-marker"],
-  tazLabels: ["taz-labels", "current-taz-label"],
+  centroids: ["global-centroid-markers", "global-current-centroid-marker"],
+  tazLabels: ["global-taz-labels", "global-current-taz-label"],
+  newTaz: ["new-taz-fill", "new-taz-outline", "new-centroid-markers", "new-taz-labels"],
+  newConnectors: ["new-connectors"],
 });
 
 const OTHER_TAZ_PAINT = Object.freeze([
-  ["taz-fill", "fill-opacity", 0.16],
-  ["taz-outline", "line-opacity", 0.75],
+  ["global-taz-fill", "fill-opacity", 0.16],
+  ["global-taz-outline", "line-opacity", 0.75],
   ["connectors-live", "line-opacity", 0.75],
   ["connector-labels", "text-opacity", 0.9],
-  ["centroid-markers", "icon-opacity", 0.8],
-  ["taz-labels", "text-opacity", 0.85],
+  ["global-centroid-markers", "icon-opacity", 0.8],
+  ["global-taz-labels", "text-opacity", 0.85],
 ]);
 
 function integerTazId(value) {
@@ -186,14 +238,145 @@ function projectedGeometryToLonLat(geometry) {
   return { type: geometry.type, coordinates: convert(geometry.coordinates) };
 }
 
+function showWarning(message) {
+  const dialog = qs("warningDialog");
+  qs("warningDialogMessage").textContent = String(message || "Please review this manual override.");
+  if (!dialog.open) dialog.showModal();
+}
+
+function hideWarning() {
+  const dialog = qs("warningDialog");
+  if (dialog.open) dialog.close();
+}
+
+function mapViewportSourceBounds() {
+  if (!state.maplibreLoaded || !state.view) return null;
+  const visible = visibleWorldBounds();
+  const padding = Math.max(
+    Number(state.data?.contextFeet || 0),
+    Math.max(visible.maxX - visible.minX, visible.maxY - visible.minY) * 0.18
+  );
+  return {
+    minX: visible.minX - padding,
+    minY: visible.minY - padding,
+    maxX: visible.maxX + padding,
+    maxY: visible.maxY + padding,
+  };
+}
+
 function connectorGeoJson() {
+  const bounds = mapViewportSourceBounds();
+  const connectors = bounds
+    ? querySpatialGrid(state.connectorGrid, bounds).filter((connector) => (
+        boundsIntersect(connector._bounds, bounds)
+        && (!state.activeGlobalReviewChunk
+          || state.globalReviewChunkByTaz.get(String(connector.tazId)) === state.activeGlobalReviewChunk)
+      ))
+    : [];
   return {
     type: "FeatureCollection",
-    features: state.globalConnectors.map((connector) => ({
+    features: connectors.map((connector) => ({
       type: "Feature",
       properties: {
         cc_pt: String(connector.ccPt || ""),
         display_label: formatConnectorLabel(connector.ccPt, connector.tazId),
+        taz_id: String(connector.tazId || ""),
+        node_id: String(connector.nodeId || ""),
+      },
+      geometry: projectedGeometryToLonLat(connector.geom),
+    })).filter((feature) => feature.geometry),
+  };
+}
+
+function tazGeoJson() {
+  const bounds = mapViewportSourceBounds();
+  const currentTazId = String(state.payload?.tazId || "");
+  const tazs = bounds
+    ? (state.data?.tazs || []).filter((taz) => (
+        (!state.activeGlobalReviewChunk
+          || state.globalReviewChunkByTaz.get(String(taz.id)) === state.activeGlobalReviewChunk)
+        && (boundsIntersect(taz._bounds, bounds) || String(taz.id) === currentTazId)
+      ))
+    : [];
+  return {
+    type: "FeatureCollection",
+    features: tazs.map((taz) => ({
+      type: "Feature",
+      properties: { taz_id: String(taz.id || "") },
+      geometry: projectedGeometryToLonLat(taz.geom),
+    })).filter((feature) => feature.geometry),
+  };
+}
+
+function centroidGeoJson() {
+  const centroids = state.activeGlobalReviewChunk
+    ? (state.data?.centroids || []).filter(
+        (centroid) => state.globalReviewChunkByTaz.get(String(centroid.id)) === state.activeGlobalReviewChunk
+      )
+    : (state.data?.centroids || []);
+  return {
+    type: "FeatureCollection",
+    features: centroids.map((centroid) => ({
+      type: "Feature",
+      properties: { taz_id: String(centroid.id || "") },
+      geometry: {
+        type: "Point",
+        coordinates: sourceToLonLat([centroid.x, centroid.y]),
+      },
+    })),
+  };
+}
+
+function applyConnectorEdits(connectors, saved) {
+  if (!saved) return connectors;
+  const deleted = new Set(saved.deleted || []);
+  const active = connectors.filter((connector) => !deleted.has(connector.ccPt));
+  for (const connector of active) {
+    const edit = saved.connectors?.[connector.ccPt];
+    if (edit) Object.assign(connector, edit);
+  }
+  if (saved.added) active.push(...structuredClone(saved.added));
+  return active;
+}
+
+function buildLegacyNewConnectors() {
+  if (!state.newData) return [];
+  const imported = state.legacyNewImportedCc?.byTaz || null;
+  const centroidById = new Map(
+    (state.newData.centroids || []).map((centroid) => [String(centroid.id), centroid])
+  );
+  const rows = [];
+  for (const item of state.newData.tazOrder || []) {
+    const tazId = String(item.id);
+    let connectors = structuredClone(state.newConnectorsByTaz.get(tazId) || []);
+    if (imported) {
+      connectors = (imported[tazId] || []).flatMap((row, index) => {
+        const node = state.nodeById.get(CcFileLoader.cleanId(row.nodeId));
+        const centroid = centroidById.get(tazId);
+        const geometry = row.geometry || (node && centroid
+          ? { type: "LineString", coordinates: [[centroid.x, centroid.y], [node.x, node.y]] }
+          : null);
+        if (!geometry) return [];
+        return [{
+          ccPt: row.ccPt || `${tazId}_UPLOAD${index + 1}`,
+          nodeId: row.nodeId,
+          geom: geometry,
+        }];
+      });
+    }
+    connectors = applyConnectorEdits(connectors, state.legacyNewEdits[tazId]);
+    for (const connector of connectors) rows.push({ ...connector, tazId });
+  }
+  return rows;
+}
+
+function newConnectorGeoJson() {
+  return {
+    type: "FeatureCollection",
+    features: state.newConnectors.map((connector) => ({
+      type: "Feature",
+      properties: {
+        cc_pt: String(connector.ccPt || ""),
         taz_id: String(connector.tazId || ""),
         node_id: String(connector.nodeId || ""),
       },
@@ -211,9 +394,9 @@ function missingLinkGeoJson() {
         pair_key: String(link.pairKey || ""),
         a: String(link.a || ""),
         b: String(link.b || ""),
-        lanes: 1,
-        here_miss: 1,
-        fclass: 7,
+        lanes: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : MISSING_LINK_DEFAULTS.lanes,
+        here_miss: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : MISSING_LINK_DEFAULTS.hereMiss,
+        fclass: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : MISSING_LINK_DEFAULTS.fclass,
       },
       geometry: projectedGeometryToLonLat({
         type: "LineString",
@@ -270,34 +453,43 @@ function mapLibreStyle() {
         maxzoom: vector.maxzoom,
         bounds: vector.bounds,
       },
+      "global-taz-live": { type: "geojson", data: tazGeoJson() },
+      "global-centroids-live": { type: "geojson", data: centroidGeoJson() },
       "connectors-live": { type: "geojson", data: connectorGeoJson() },
+      "new-connectors-live": { type: "geojson", data: newConnectorGeoJson() },
       "here-miss-live": { type: "geojson", data: missingLinkGeoJson() },
     },
     layers: [
       { id: "road-basemap", type: "raster", source: "road", paint: { "raster-fade-duration": 0 } },
       { id: "satellite-basemap", type: "raster", source: "satellite", layout: { visibility: "none" }, paint: { "raster-fade-duration": 0 } },
-      { id: "taz-fill", type: "fill", source: "qaqc", "source-layer": "taz", paint: { "fill-color": "#377dd7", "fill-opacity": otherTazOpacity(0.16) } },
-      { id: "taz-outline", type: "line", source: "qaqc", "source-layer": "taz", paint: { "line-color": "#165bb1", "line-width": 2.25, "line-opacity": otherTazOpacity(0.75) } },
+      { id: "global-taz-fill", type: "fill", source: "global-taz-live", paint: { "fill-color": "#377dd7", "fill-opacity": otherTazOpacity(0.16) } },
+      { id: "global-taz-outline", type: "line", source: "global-taz-live", paint: { "line-color": "#165bb1", "line-width": 2.25, "line-opacity": otherTazOpacity(0.75) } },
+      { id: "new-taz-fill", type: "fill", source: "qaqc", "source-layer": "taz", layout: { visibility: "none" }, paint: { "fill-color": "#38a169", "fill-opacity": 0.12 } },
+      { id: "new-taz-outline", type: "line", source: "qaqc", "source-layer": "taz", layout: { visibility: "none" }, paint: { "line-color": "#23814b", "line-width": 2, "line-opacity": 0.8 } },
       { id: "gstdm-links", type: "line", source: "qaqc", "source-layer": "gstdm", paint: { "line-color": "#080b10", "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.7, 12, 2.1, 16, 3.0], "line-opacity": 0.9 } },
-      { id: "major-nodes", type: "circle", source: "qaqc", "source-layer": "nodes", filter: ["<=", ["coalesce", ["get", "major_level"], 99], 2], paint: { "circle-color": "#df252b", "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 2.5, 16, 5], "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.7 } },
-      { id: "node-clusters", type: "circle", source: "qaqc", "source-layer": "node_clusters", minzoom: 10, maxzoom: 12, paint: { "circle-color": "#26875a", "circle-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.38, 11.9, 0.68], "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, ["interpolate", ["linear"], ["get", "count"], 1, 2.5, 100, 3.5, 1000, 5], 11.9, ["interpolate", ["linear"], ["get", "count"], 1, 4.5, 100, 5.5, 1000, 7]], "circle-stroke-color": "rgba(255,255,255,0.9)", "circle-stroke-width": 0.8 } },
-      { id: "node-cluster-count", type: "symbol", source: "qaqc", "source-layer": "node_clusters", minzoom: 10, maxzoom: 12, layout: { "text-field": ["to-string", ["get", "count"]], "text-size": ["interpolate", ["linear"], ["zoom"], 10, 8, 11.9, 10], "text-offset": [0, 1.15], "text-allow-overlap": false }, paint: { "text-color": "#155f42", "text-halo-color": "rgba(255,255,255,0.96)", "text-halo-width": 1.2 } },
-      { id: "non-major-nodes", type: "circle", source: "qaqc", "source-layer": "nodes", filter: [">", ["coalesce", ["get", "major_level"], 99], 2], paint: { "circle-color": "#248653", "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 2.2, 16, 4.5], "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.55 } },
+      { id: "major-nodes", type: "circle", source: "qaqc", "source-layer": "nodes", filter: ["all", ["!=", ["get", "outside_ga"], true], ["<=", ["coalesce", ["get", "major_level"], 99], 2]], paint: { "circle-color": "#df252b", "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 2.5, 16, 5], "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.7 } },
+      { id: "node-clusters", type: "circle", source: "qaqc", "source-layer": "node_clusters", minzoom: 8, maxzoom: 11, paint: { "circle-color": "#26875a", "circle-opacity": 0.55, "circle-radius": ["interpolate", ["linear"], ["get", "count"], 1, 2.5, 100, 3.5, 1000, 5], "circle-stroke-color": "rgba(255,255,255,0.9)", "circle-stroke-width": 0.8 } },
+      { id: "node-cluster-count", type: "symbol", source: "qaqc", "source-layer": "node_clusters", minzoom: 8, maxzoom: 11, layout: { "text-field": ["to-string", ["get", "count"]], "text-size": 8, "text-offset": [0, 1.15], "text-allow-overlap": false }, paint: { "text-color": "#155f42", "text-halo-color": "rgba(255,255,255,0.96)", "text-halo-width": 1.2 } },
+      { id: "candidate-nodes-preview", type: "circle", source: "qaqc", "source-layer": "candidate_nodes", minzoom: 11, maxzoom: 12, paint: { "circle-color": "#248653", "circle-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.78, 11.9, 0.92], "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.4, 11.9, 3.5], "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.55 } },
+      { id: "non-major-nodes", type: "circle", source: "qaqc", "source-layer": "nodes", filter: ["any", ["==", ["get", "outside_ga"], true], [">", ["coalesce", ["get", "major_level"], 99], 2]], paint: { "circle-color": "#248653", "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 2.2, 16, 4.5], "circle-stroke-color": "#ffffff", "circle-stroke-width": 0.55 } },
       { id: "connectors-live", type: "line", source: "connectors-live", paint: { "line-color": "#d9252a", "line-width": 2.5, "line-opacity": otherTazOpacity(0.75) } },
+      { id: "new-connectors", type: "line", source: "new-connectors-live", layout: { visibility: "none" }, paint: { "line-color": "#0f9d78", "line-width": 3, "line-opacity": 0.9, "line-dasharray": [1.4, 0.8] } },
       { id: "here-miss-links", type: "line", source: "here-miss-live", paint: { "line-color": "#8a35c5", "line-width": 5, "line-opacity": 0.95, "line-dasharray": [2, 1.2] } },
       { id: "here-miss-selected", type: "line", source: "here-miss-live", filter: ["==", ["get", "pair_key"], ""], paint: { "line-color": "#ff8500", "line-width": 9, "line-opacity": 1 } },
       { id: "current-taz-connectors", type: "line", source: "connectors-live", filter: ["==", ["get", "taz_id"], ""], paint: { "line-color": "#d9252a", "line-width": 4.5, "line-opacity": 0.96 } },
       { id: "connector-selected", type: "line", source: "connectors-live", filter: ["==", ["get", "cc_pt"], ""], paint: { "line-color": "#ffae00", "line-width": 7 } },
       { id: "connector-labels", type: "symbol", source: "connectors-live", minzoom: 10, layout: { "symbol-placement": "line", "text-field": ["get", "display_label"], "text-size": 10, "text-allow-overlap": false }, paint: { "text-color": "#9d2226", "text-opacity": otherTazOpacity(0.9), "text-halo-color": "rgba(255,255,255,0.85)", "text-halo-width": 1.5 } },
       { id: "current-connector-labels", type: "symbol", source: "connectors-live", minzoom: 9, filter: ["==", ["get", "taz_id"], ""], layout: { "symbol-placement": "line", "text-field": ["get", "display_label"], "text-size": 12, "text-allow-overlap": true }, paint: { "text-color": "#98171c", "text-opacity": 0.98, "text-halo-color": "#ffffff", "text-halo-width": 2.5 } },
-      { id: "centroid-markers", type: "symbol", source: "qaqc", "source-layer": "centroids", layout: { "icon-image": "centroid-triangle", "icon-size": ["interpolate", ["linear"], ["zoom"], 7, 0.28, 13, 0.46, 17, 0.58], "icon-allow-overlap": true }, paint: { "icon-opacity": otherTazOpacity(0.8) } },
-      { id: "current-centroid-marker", type: "symbol", source: "qaqc", "source-layer": "centroids", filter: ["==", ["get", "taz_id"], ""], layout: { "icon-image": "centroid-triangle", "icon-size": ["interpolate", ["linear"], ["zoom"], 7, 0.5, 13, 0.68, 17, 0.82], "icon-allow-overlap": true }, paint: { "icon-opacity": 1 } },
-      { id: "taz-labels", type: "symbol", source: "qaqc", "source-layer": "centroids", layout: { "text-field": ["get", "taz_id"], "text-size": ["interpolate", ["linear"], ["zoom"], 7, 10, 12, 15], "text-offset": [0, -1.4], "text-allow-overlap": true }, paint: { "text-color": "#143b70", "text-opacity": otherTazOpacity(0.85), "text-halo-color": "rgba(255,255,255,0.82)", "text-halo-width": 1.5 } },
-      { id: "taz-hover-fill", type: "fill", source: "qaqc", "source-layer": "taz", filter: ["==", ["get", "taz_id"], ""], paint: { "fill-color": "#ff9123", "fill-opacity": 0.24 } },
-      { id: "taz-hover-outline", type: "line", source: "qaqc", "source-layer": "taz", filter: ["==", ["get", "taz_id"], ""], paint: { "line-color": "#e66a00", "line-width": 4.5 } },
-      { id: "taz-current-fill", type: "fill", source: "qaqc", "source-layer": "taz", filter: ["==", ["get", "taz_id"], ""], paint: { "fill-color": "#277fdc", "fill-opacity": 0.38 } },
-      { id: "taz-current-outline", type: "line", source: "qaqc", "source-layer": "taz", filter: ["==", ["get", "taz_id"], ""], paint: { "line-color": "#075fc7", "line-width": 5 } },
-      { id: "current-taz-label", type: "symbol", source: "qaqc", "source-layer": "centroids", filter: ["==", ["get", "taz_id"], ""], layout: { "text-field": ["get", "taz_id"], "text-size": 24, "text-offset": [0, -1.5], "text-allow-overlap": true }, paint: { "text-color": "#075fc7", "text-halo-color": "#ffffff", "text-halo-width": 3 } },
+      { id: "global-centroid-markers", type: "symbol", source: "global-centroids-live", layout: { "icon-image": "centroid-triangle", "icon-size": ["interpolate", ["linear"], ["zoom"], 7, 0.28, 13, 0.46, 17, 0.58], "icon-allow-overlap": true }, paint: { "icon-opacity": otherTazOpacity(0.8) } },
+      { id: "global-current-centroid-marker", type: "symbol", source: "global-centroids-live", filter: ["==", ["get", "taz_id"], ""], layout: { "icon-image": "centroid-triangle", "icon-size": ["interpolate", ["linear"], ["zoom"], 7, 0.5, 13, 0.68, 17, 0.82], "icon-allow-overlap": true }, paint: { "icon-opacity": 1 } },
+      { id: "global-taz-labels", type: "symbol", source: "global-centroids-live", layout: { "text-field": ["get", "taz_id"], "text-size": ["interpolate", ["linear"], ["zoom"], 7, 10, 12, 15], "text-offset": [0, -1.4], "text-allow-overlap": true }, paint: { "text-color": "#143b70", "text-opacity": otherTazOpacity(0.85), "text-halo-color": "rgba(255,255,255,0.82)", "text-halo-width": 1.5 } },
+      { id: "new-centroid-markers", type: "symbol", source: "qaqc", "source-layer": "centroids", layout: { visibility: "none", "icon-image": "centroid-triangle", "icon-size": ["interpolate", ["linear"], ["zoom"], 7, 0.24, 13, 0.4, 17, 0.52], "icon-allow-overlap": true }, paint: { "icon-opacity": 0.75 } },
+      { id: "new-taz-labels", type: "symbol", source: "qaqc", "source-layer": "centroids", layout: { visibility: "none", "text-field": ["concat", "New ", ["to-string", ["get", "taz_id"]]], "text-size": ["interpolate", ["linear"], ["zoom"], 7, 9, 12, 13], "text-offset": [0, -1.3], "text-allow-overlap": false }, paint: { "text-color": "#17633c", "text-halo-color": "rgba(255,255,255,0.9)", "text-halo-width": 1.5 } },
+      { id: "global-taz-hover-fill", type: "fill", source: "global-taz-live", filter: ["==", ["get", "taz_id"], ""], paint: { "fill-color": "#ff9123", "fill-opacity": 0.24 } },
+      { id: "global-taz-hover-outline", type: "line", source: "global-taz-live", filter: ["==", ["get", "taz_id"], ""], paint: { "line-color": "#e66a00", "line-width": 4.5 } },
+      { id: "global-taz-current-fill", type: "fill", source: "global-taz-live", filter: ["==", ["get", "taz_id"], ""], paint: { "fill-color": "#277fdc", "fill-opacity": 0.38 } },
+      { id: "global-taz-current-outline", type: "line", source: "global-taz-live", filter: ["==", ["get", "taz_id"], ""], paint: { "line-color": "#075fc7", "line-width": 5 } },
+      { id: "global-current-taz-label", type: "symbol", source: "global-centroids-live", filter: ["==", ["get", "taz_id"], ""], layout: { "text-field": ["get", "taz_id"], "text-size": 24, "text-offset": [0, -1.5], "text-allow-overlap": true }, paint: { "text-color": "#075fc7", "text-halo-color": "#ffffff", "text-halo-width": 3 } },
     ],
   };
 }
@@ -320,8 +512,22 @@ async function initMapLibreMap() {
     }
   });
   await new Promise((resolve, reject) => {
-    state.maplibreMap.once("load", resolve);
-    state.maplibreMap.once("error", (event) => reject(event.error || new Error("MapLibre failed to initialize.")));
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      if (state.maplibreMap.isStyleLoaded()) finish();
+      else reject(new Error("MapLibre style initialization timed out after 10 seconds."));
+    }, 10000);
+    state.maplibreMap.once("style.load", finish);
+    state.maplibreMap.once("load", finish);
+    state.maplibreMap.on("error", (event) => {
+      console.warn("MapLibre source or tile warning", event.error || event);
+    });
   });
   state.maplibreLoaded = true;
   if (!state.maplibreMap.hasImage("centroid-triangle")) {
@@ -331,7 +537,12 @@ async function initMapLibreMap() {
     syncViewFromMapLibre();
     scheduleDraw();
   });
-  state.maplibreMap.on("moveend", () => scheduleViewportLoad());
+  state.maplibreMap.on("moveend", () => {
+    qs("maplibreMap").dataset.mapZoom = state.maplibreMap.getZoom().toFixed(2);
+    refreshMapLibreViewportSources();
+    scheduleViewportLoad();
+  });
+  qs("maplibreMap").dataset.mapZoom = state.maplibreMap.getZoom().toFixed(2);
   syncMapLibreLayerState();
   applyOtherTazVisibility();
   updateMapLibreSelection();
@@ -339,7 +550,22 @@ async function initMapLibreMap() {
 
 function refreshMapLibreConnectors() {
   if (!state.maplibreLoaded) return;
-  state.maplibreMap.getSource("connectors-live")?.setData(connectorGeoJson());
+  const data = connectorGeoJson();
+  state.maplibreMap.getSource("connectors-live")?.setData(data);
+  qs("maplibreMap").dataset.viewportConnectors = String(data.features.length);
+}
+
+function refreshMapLibreCentroids() {
+  if (!state.maplibreLoaded) return;
+  state.maplibreMap.getSource("global-centroids-live")?.setData(centroidGeoJson());
+}
+
+function refreshMapLibreViewportSources() {
+  if (!state.maplibreLoaded) return;
+  const data = tazGeoJson();
+  state.maplibreMap.getSource("global-taz-live")?.setData(data);
+  qs("maplibreMap").dataset.viewportTazs = String(data.features.length);
+  refreshMapLibreConnectors();
 }
 
 function refreshMapLibreMissingLinks() {
@@ -353,17 +579,17 @@ function updateMapLibreSelection() {
   const hoverId = String(state.hoveredTazId || "");
   const ccPt = String(state.selected?.ccPt || "");
   const missingPairKey = String(state.selectedMissingLink?.pairKey || "");
-  for (const layer of ["taz-current-fill", "taz-current-outline", "current-taz-label"]) {
+  for (const layer of ["global-taz-current-fill", "global-taz-current-outline", "global-current-taz-label"]) {
     state.maplibreMap.setFilter(layer, ["==", ["get", "taz_id"], tazId]);
   }
-  for (const layer of ["current-taz-connectors", "current-connector-labels", "current-centroid-marker"]) {
+  for (const layer of ["current-taz-connectors", "current-connector-labels", "global-current-centroid-marker"]) {
     state.maplibreMap.setFilter(layer, ["==", ["get", "taz_id"], tazId]);
   }
-  for (const layer of ["taz-fill", "taz-outline", "connectors-live", "connector-labels", "centroid-markers"]) {
+  for (const layer of ["global-taz-fill", "global-taz-outline", "connectors-live", "connector-labels", "global-centroid-markers"]) {
     state.maplibreMap.setFilter(layer, ["!=", ["get", "taz_id"], tazId]);
   }
-  state.maplibreMap.setFilter("taz-labels", ["!=", ["get", "taz_id"], tazId]);
-  for (const layer of ["taz-hover-fill", "taz-hover-outline"]) {
+  state.maplibreMap.setFilter("global-taz-labels", ["!=", ["get", "taz_id"], tazId]);
+  for (const layer of ["global-taz-hover-fill", "global-taz-hover-outline"]) {
     state.maplibreMap.setFilter(layer, ["==", ["get", "taz_id"], hoverId]);
   }
   state.maplibreMap.setFilter("connector-selected", ["==", ["get", "cc_pt"], ccPt]);
@@ -452,18 +678,57 @@ async function init() {
     scheduleDraw();
   });
 
-  status("Loading TAZ and connector core data...");
-  state.data = await fetchJson("data/core.json");
+  status("Loading 1/4: Global review index...");
+  const [newData, globalData, changed607Data, autoFixedSharedData] = await Promise.all([
+    fetchJson("data/core.json"),
+    fetchJson("data/global-review.json"),
+    fetchJson("data/review-changed-607.json"),
+    fetchJson("data/review-auto-fixed-shared.json"),
+  ]);
+  status("Loading 2/4: preparing TAZ review index...");
+  state.newData = newData;
+  state.newTazIds = new Set((newData.tazOrder || []).map((item) => String(item.id)));
+  state.changed607TazIds = new Set(
+    (changed607Data.tazIds || []).map((id) => String(id))
+  );
+  state.autoFixedSharedTazIds = new Set(
+    (autoFixedSharedData.tazIds || []).map((id) => String(id))
+  );
+  state.data = {
+    ...newData,
+    ...globalData,
+    tazs: globalData.tazs || [],
+    connectors: globalData.connectors || [],
+    contextFeet: newData.contextFeet,
+    connectorNodes: newData.connectorNodes,
+    defaultInputs: newData.defaultInputs,
+    defaultMissingLinks: newData.defaultMissingLinks,
+    tileManifest: newData.tileManifest,
+    vectorTiles: newData.vectorTiles,
+  };
   if (!state.missingLinksFromStorage) {
     state.missingLinks = validMissingLinks(state.data.defaultMissingLinks);
   }
   updateMissingLinkModeUi();
-  state.tileManifest = await fetchJson(state.data.tileManifest);
+  state.tileManifest = await fetchJson(newData.tileManifest);
   state.index = state.data;
   state.tazOrder = sortTazOrder(state.data.tazOrder);
+  initializeGlobalReviewChunks(globalData);
+  if (state.globalReviewChunks && state.tazOrder.length) {
+    status("Loading 3/4: first Global TAZ / CC chunk...");
+    await ensureGlobalReviewChunkForTaz(state.tazOrder[0].id, false);
+  }
   buildDataIndexes();
+  if (state.legacyNewImportedCc?.byTaz) {
+    await ensureNodesByIds(
+      Object.values(state.legacyNewImportedCc.byTaz)
+        .flatMap((rows) => rows.map((row) => row.nodeId))
+    );
+  }
+  state.newConnectors = buildLegacyNewConnectors();
   restoreImportedCc();
   rebuildGlobalConnectorIndex();
+  status("Loading 4/4: MapLibre map style...");
   await initMapLibreMap();
   updateImportedCcUi();
   renderQueue();
@@ -473,9 +738,192 @@ async function init() {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url}: ${response.status}`);
-  return response.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error(`${url}: timed out after 30 seconds`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function initializeGlobalReviewChunks(globalData) {
+  state.globalReviewChunks = globalData.globalReviewChunks || null;
+  state.globalReviewChunkByTaz = new Map();
+  state.globalReviewChunkUrls = new Map();
+  state.globalReviewChunkPromises = new Map();
+  state.loadedGlobalReviewChunks = new Set();
+  for (const item of state.globalReviewChunks?.items || []) {
+    state.globalReviewChunkUrls.set(String(item.id), String(item.url));
+  }
+  for (const item of globalData.tazOrder || []) {
+    if (item.chunk != null) state.globalReviewChunkByTaz.set(String(item.id), String(item.chunk));
+  }
+  state.activeGlobalReviewChunk = state.globalReviewChunks?.items?.length
+    ? String(state.globalReviewChunks.items[0].id)
+    : null;
+  updateDataBlockSelect();
+}
+
+function activeReviewTazOrder() {
+  if (!state.activeGlobalReviewChunk) return state.tazOrder;
+  return state.tazOrder.filter(
+    (item) => String(item.chunk) === String(state.activeGlobalReviewChunk)
+  );
+}
+
+function updateDataBlockSelect() {
+  const select = qs("dataBlockSelect");
+  if (!select) return;
+  select.replaceChildren();
+  for (const [index, item] of (state.globalReviewChunks?.items || []).entries()) {
+    const option = document.createElement("option");
+    option.value = String(item.id);
+    option.textContent = `Block ${index + 1}: TAZ ${item.firstTaz}-${item.lastTaz} (${Number(item.tazs).toLocaleString()} TAZ / ${Number(item.connectors).toLocaleString()} CC)`;
+    select.appendChild(option);
+  }
+  select.value = state.activeGlobalReviewChunk || "";
+  select.disabled = select.options.length <= 1;
+}
+
+async function activateGlobalReviewChunk(chunkId, goToFirst = true) {
+  const id = String(chunkId ?? "");
+  if (!state.globalReviewChunkUrls.has(id)) throw new Error(`Global review block ${id} was not found.`);
+  const alreadyActive = id === String(state.activeGlobalReviewChunk)
+    && state.loadedGlobalReviewChunks.size === 1
+    && state.loadedGlobalReviewChunks.has(id);
+  if (!alreadyActive) {
+    status(`Loading Global TAZ / CC block ${Number(id) + 1}...`);
+    state.activeGlobalReviewChunk = id;
+    state.data.tazs = [];
+    state.data.connectors = [];
+    state.dataIndexesReady = false;
+    state.globalReviewChunkPromises = new Map();
+    state.loadedGlobalReviewChunks = new Set();
+    state.tazById = new Map();
+    state.connectorsByTaz = new Map();
+    state.globalConnectors = [];
+    state.connectorGrid = new Map();
+    await ensureGlobalReviewChunk(id, false);
+    buildDataIndexes();
+    rebuildGlobalConnectorIndex();
+  }
+  updateDataBlockSelect();
+  renderQueue();
+  refreshMapLibreCentroids();
+  refreshMapLibreViewportSources();
+  if (goToFirst) {
+    const first = activeReviewTazOrder()[0];
+    if (first) await goToTaz(first.id);
+  }
+}
+
+function mergeGlobalReviewChunk(chunk) {
+  const chunkId = String(chunk.chunk ?? "");
+  if (!chunkId || state.loadedGlobalReviewChunks.has(chunkId)) return false;
+  for (const taz of chunk.tazs || []) {
+    taz._bounds = geomBounds(taz.geom);
+    state.data.tazs.push(taz);
+    if (state.dataIndexesReady) state.tazById.set(String(taz.id), taz);
+  }
+  for (const connector of chunk.connectors || []) {
+    state.data.connectors.push(connector);
+    if (state.dataIndexesReady) {
+      const tazId = String(connector.tazId);
+      if (!state.connectorsByTaz.has(tazId)) state.connectorsByTaz.set(tazId, []);
+      state.connectorsByTaz.get(tazId).push(connector);
+    }
+  }
+  state.loadedGlobalReviewChunks.add(chunkId);
+  const mapElement = qs("maplibreMap");
+  if (mapElement) {
+    mapElement.dataset.loadedReviewChunks = String(state.loadedGlobalReviewChunks.size);
+    mapElement.dataset.loadedReviewTazs = String(state.data.tazs.length);
+    mapElement.dataset.loadedReviewConnectors = String(state.data.connectors.length);
+  }
+  return true;
+}
+
+async function ensureGlobalReviewChunk(chunkId, refresh = true) {
+  const id = String(chunkId ?? "");
+  if (!id || state.loadedGlobalReviewChunks.has(id)) return false;
+  if (!state.globalReviewChunkPromises.has(id)) {
+    const url = state.globalReviewChunkUrls.get(id);
+    if (!url) throw new Error(`Global review chunk ${id} is not in the manifest.`);
+    state.globalReviewChunkPromises.set(
+      id,
+      fetchJson(url)
+        .then((chunk) => mergeGlobalReviewChunk(chunk))
+        .catch((error) => {
+          state.globalReviewChunkPromises.delete(id);
+          throw error;
+        })
+    );
+  }
+  const loaded = await state.globalReviewChunkPromises.get(id);
+  if (loaded && refresh && state.dataIndexesReady) {
+    rebuildGlobalConnectorIndex();
+    refreshMapLibreViewportSources();
+  }
+  return loaded;
+}
+
+async function ensureGlobalReviewChunkForTaz(tazId, refresh = true) {
+  if (!state.globalReviewChunks) return false;
+  return ensureGlobalReviewChunk(state.globalReviewChunkByTaz.get(String(tazId)), refresh);
+}
+
+async function ensureGlobalReviewChunksForBounds(bounds) {
+  if (!state.globalReviewChunks || !bounds || state.activeGlobalReviewChunk) return false;
+  const chunkIds = new Set();
+  for (const centroid of state.data.centroids || []) {
+    if (
+      centroid.x >= bounds.minX && centroid.x <= bounds.maxX
+      && centroid.y >= bounds.minY && centroid.y <= bounds.maxY
+    ) {
+      const chunkId = state.globalReviewChunkByTaz.get(String(centroid.id));
+      if (chunkId && !state.loadedGlobalReviewChunks.has(chunkId)) chunkIds.add(chunkId);
+    }
+  }
+  if (!chunkIds.size) return false;
+  const loaded = await Promise.all(
+    Array.from(chunkIds, (chunkId) => ensureGlobalReviewChunk(chunkId, false))
+  );
+  if (loaded.some(Boolean) && state.dataIndexesReady) {
+    rebuildGlobalConnectorIndex();
+    refreshMapLibreViewportSources();
+    return true;
+  }
+  return false;
+}
+
+async function ensureAllGlobalReviewChunks() {
+  if (!state.globalReviewChunks) return;
+  const remaining = Array.from(state.globalReviewChunkUrls.keys())
+    .filter((chunkId) => !state.loadedGlobalReviewChunks.has(chunkId));
+  if (!remaining.length) return;
+  status(`Loading ${remaining.length} remaining Global TAZ / CC data chunk(s) for export...`);
+  await Promise.all(remaining.map((chunkId) => ensureGlobalReviewChunk(chunkId, false)));
+  if (state.dataIndexesReady) rebuildGlobalConnectorIndex();
+}
+
+async function restoreSingleGlobalReviewChunk(chunkId, tazId) {
+  if (!chunkId || (
+    state.loadedGlobalReviewChunks.size === 1
+    && state.loadedGlobalReviewChunks.has(String(chunkId))
+  )) return;
+  await activateGlobalReviewChunk(chunkId, false);
+  if (
+    tazId
+    && state.globalReviewChunkByTaz.get(String(tazId)) === String(chunkId)
+  ) {
+    await goToTaz(tazId, true);
+  }
 }
 
 function bindControls() {
@@ -485,6 +933,13 @@ function bindControls() {
   qs("undoBtn").addEventListener("click", undoEdit);
   qs("redoBtn").addEventListener("click", redoEdit);
   qs("jumpBtn").addEventListener("click", () => goToTaz(qs("jumpInput").value.trim()));
+  qs("dataBlockSelect").addEventListener("change", (event) => {
+    void activateGlobalReviewChunk(event.target.value).catch((error) => {
+      console.error(error);
+      status(`Failed to load selected data block: ${error.message}`);
+      toast(error.message);
+    });
+  });
   qs("saveBtn").addEventListener("click", saveEdit);
   qs("addCcBtn").addEventListener("click", toggleAddMode);
   qs("addMissingLinkBtn").addEventListener("click", toggleMissingLinkMode);
@@ -494,7 +949,10 @@ function bindControls() {
   qs("closeMissingLinksExportDialogBtn").addEventListener("click", hideMissingLinksExportDialog);
   qs("cancelMissingLinksExportBtn").addEventListener("click", hideMissingLinksExportDialog);
   qs("downloadMissingLinksExportBtn").addEventListener("click", exportMissingLinks);
-  qs("reviewedBtn").addEventListener("click", markReviewed);
+  qs("reviewedPrevBtn").addEventListener("click", () => markReviewed(-1));
+  qs("reviewedBtn").addEventListener("click", () => markReviewed(1));
+  qs("closeWarningDialogBtn").addEventListener("click", hideWarning);
+  qs("acknowledgeWarningBtn").addEventListener("click", hideWarning);
   qs("finalExportBtn").addEventListener("click", showExportDialog);
   qs("closeExportDialogBtn").addEventListener("click", hideExportDialog);
   qs("cancelExportBtn").addEventListener("click", hideExportDialog);
@@ -527,7 +985,7 @@ function bindControls() {
     hideContextMenu();
     state.addMode = true;
     updateAddModeUi();
-    toast("Tap an eligible node to add CC.");
+    toast("Tap any node to add CC. Red major nodes require a Warning acknowledgement.");
   });
   qs("ctxDeleteCcBtn").addEventListener("click", () => {
     hideContextMenu();
@@ -564,7 +1022,24 @@ function bindControls() {
       if (state.missingLinkMode) stopMissingLinkMode();
     }
   });
-  qs("queueFilter").addEventListener("change", renderQueue);
+  qs("queueFilter").addEventListener("change", async (event) => {
+    if (event.target.value === "cross-taz-shared-node") {
+      if (state.crossTazConflictFilterReady) renderQueue();
+      else await refreshCrossTazSharedNodeReview();
+      return;
+    }
+    renderQueue();
+  });
+  qs("queueList").addEventListener("click", (event) => {
+    const row = event.target.closest(".queue-item");
+    if (row?.dataset.tazId) goToTaz(row.dataset.tazId);
+  });
+  qs("queueList").addEventListener("contextmenu", (event) => {
+    const row = event.target.closest(".queue-item");
+    if (!row?.dataset.tazId) return;
+    event.preventDefault();
+    showTazStatusMenu(event.clientX, event.clientY, row.dataset.tazId);
+  });
   qs("otherTazVisibility").addEventListener("input", (event) => {
     state.otherTazVisibility = Math.max(0, Math.min(100, Number(event.target.value) || 0));
     localStorage.setItem(STORAGE_KEYS.otherTazVisibility, JSON.stringify(state.otherTazVisibility));
@@ -834,7 +1309,7 @@ function bindCanvas() {
     if (state.activePointerId !== null && event.pointerId !== state.activePointerId) return;
     const pt = eventPoint(event);
     if (state.isDraggingEndpoint) {
-      state.pendingNode = nearestEligibleNode(pt);
+      state.pendingNode = nearestEditableNode(pt);
       updateInspector();
       draw(pt);
       event.preventDefault();
@@ -864,7 +1339,7 @@ function updateHoveredCandidateNode(pt) {
   const hit = state.missingLinkMode && pt
     ? findNodeAt(pt, 18)
     : state.selected && pt
-      ? findEligibleNodeAt(pt, 18)
+      ? findEditableNodeAt(pt, 18)
       : null;
   const nextId = hit ? String(hit.id) : null;
   if (nextId === state.hoveredNodeId) return;
@@ -912,7 +1387,7 @@ function finishPointer(event) {
     if (state.pendingNode) {
       applyEditToNode(state.pendingNode);
     } else {
-      toast("No eligible node near endpoint.");
+      toast("No editable node near endpoint.");
     }
     updateInspector();
   }
@@ -1032,12 +1507,14 @@ function importedCcDiffers(tazId) {
 }
 
 function getTazStatus(tazId) {
-  if ((state.connectorCountsByTaz.get(String(tazId)) || 0) === 0) return "FLAG";
-  const edit = state.edits[String(tazId)] || {};
+  const id = String(tazId);
+  if ((state.connectorCountsByTaz.get(id) || 0) === 0) return "FLAG";
+  const edit = state.edits[id] || {};
   const explicit = String(edit.qcStatus || "").toUpperCase();
   if (TAZ_STATUSES.includes(explicit)) return explicit;
   if (edit.reviewed) return "REVIEWED";
   if (hasUserChanges(tazId) || importedCcDiffers(tazId)) return "EDITED";
+  if (state.newTazIds.has(id)) return "REVIEWED";
   return "WAITING FOR QC";
 }
 
@@ -1070,17 +1547,69 @@ function sortTazOrder(items) {
   });
 }
 
+function updateTazStatusSummary() {
+  const counts = Object.fromEntries(TAZ_STATUSES.map((value) => [value, 0]));
+  const scopedOrder = activeReviewTazOrder();
+  for (const item of scopedOrder) {
+    const value = getTazStatus(item.id);
+    counts[value] = (counts[value] || 0) + 1;
+  }
+  const total = scopedOrder.length;
+  const reviewed = counts.REVIEWED || 0;
+  const reviewedPercent = total ? Math.round((reviewed / total) * 100) : 0;
+  qs("statusReviewedCount").textContent = reviewed.toLocaleString();
+  qs("statusEditedCount").textContent = (counts.EDITED || 0).toLocaleString();
+  qs("statusFlagCount").textContent = (counts.FLAG || 0).toLocaleString();
+  qs("statusWaitingCount").textContent = (counts["WAITING FOR QC"] || 0).toLocaleString();
+  qs("statusTotalCount").textContent = total.toLocaleString();
+  qs("statusReviewedPercent").textContent = `${reviewedPercent}% reviewed`;
+  qs("statusReviewedProgress").style.width = `${reviewedPercent}%`;
+}
+
+function queueItemMatchesFilter(item, filter) {
+  if (filter === "all") return true;
+  if (filter === "cross-taz-shared-node") {
+    return state.crossTazConflictTazIds.has(String(item.id));
+  }
+  if (filter === "changed-607") {
+    return state.changed607TazIds.has(String(item.id));
+  }
+  if (filter === "auto-fixed-shared") {
+    return state.autoFixedSharedTazIds.has(String(item.id));
+  }
+  return getTazStatus(item.id).toLowerCase() === filter;
+}
+
+function filteredReviewTazOrder(filter = qs("queueFilter")?.value || "all") {
+  return activeReviewTazOrder().filter((item) => queueItemMatchesFilter(item, filter));
+}
+
+function isDedicatedReviewFilter(filter) {
+  return filter === "cross-taz-shared-node"
+    || filter === "changed-607"
+    || filter === "auto-fixed-shared";
+}
+
 function renderQueue({ revealCurrent = false } = {}) {
   const list = qs("queueList");
   const currentId = String(state.payload?.tazId ?? "");
-  if (revealCurrent && currentId) qs("queueFilter").value = "all";
-  const filter = qs("queueFilter").value;
+  const filterSelect = qs("queueFilter");
+  if (revealCurrent && currentId && !isDedicatedReviewFilter(filterSelect.value)) {
+    filterSelect.value = "all";
+  }
+  const filter = filterSelect.value;
   list.innerHTML = "";
   let activeRow = null;
-  const visibleItems = state.tazOrder.filter((item) => {
-      return filter === "all" || getTazStatus(item.id).toLowerCase() === filter;
-    });
-  qs("tazListCount").textContent = `${visibleItems.length} shown`;
+  const fragment = document.createDocumentFragment();
+  const visibleItems = filteredReviewTazOrder(filter);
+  qs("tazListCount").textContent = filter === "cross-taz-shared-node"
+    ? `${visibleItems.length} shown / ${state.crossTazConflictTazIds.size} affected${state.crossTazConflictFilterReady ? "" : " (refresh needed)"}`
+    : filter === "changed-607"
+      ? `${visibleItems.length} shown / ${state.changed607TazIds.size} review TAZs`
+      : filter === "auto-fixed-shared"
+        ? `${visibleItems.length} shown / ${state.autoFixedSharedTazIds.size} auto-fixed TAZs`
+      : `${visibleItems.length} shown`;
+  updateTazStatusSummary();
   visibleItems.forEach((item) => {
       const connectorCount = state.connectorCountsByTaz.get(String(item.id)) || 0;
       const row = document.createElement("div");
@@ -1090,14 +1619,18 @@ function renderQueue({ revealCurrent = false } = {}) {
       if (isCurrent) activeRow = row;
       const qcStatus = getTazStatus(item.id);
       const statusClass = qcStatus.toLowerCase().replace(/\s+/g, "-");
-      row.innerHTML = `<div><strong>${item.id}</strong><br><small>${item.issue || "No issue noted"} | ${connectorCount} CC</small></div><span class="pill ${statusClass}">${qcStatus}</span>`;
-      row.addEventListener("click", () => goToTaz(item.id));
-      row.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        showTazStatusMenu(event.clientX, event.clientY, item.id);
-      });
-      list.appendChild(row);
+      const sharedNodes = state.crossTazConflictNodesByTaz.get(String(item.id)) || [];
+      const issue = filter === "cross-taz-shared-node"
+        ? `${sharedNodes.length} shared node${sharedNodes.length === 1 ? "" : "s"}: ${sharedNodes.slice(0, 4).join(", ")}${sharedNodes.length > 4 ? ", ..." : ""}`
+        : filter === "changed-607"
+          ? "Changed 2020-2025; New TAZ excluded"
+          : filter === "auto-fixed-shared"
+            ? "Cross-TAZ shared node auto-fixed; review new endpoint"
+          : item.issue || "No issue noted";
+      row.innerHTML = `<div><strong>${item.id}</strong><br><small>${issue} | ${connectorCount} CC</small></div><span class="pill ${statusClass}">${qcStatus}</span>`;
+      fragment.appendChild(row);
     });
+  list.appendChild(fragment);
   if (revealCurrent && activeRow) activeRow.scrollIntoView({ block: "nearest", inline: "nearest" });
   renderInspectorTables(true);
 }
@@ -1161,7 +1694,14 @@ function buildDataIndexes() {
     if (!state.connectorsByTaz.has(id)) state.connectorsByTaz.set(id, []);
     state.connectorsByTaz.get(id).push(connector);
   }
+  state.newConnectorsByTaz = new Map();
+  for (const connector of state.newData?.connectors || []) {
+    const id = String(connector.tazId);
+    if (!state.newConnectorsByTaz.has(id)) state.newConnectorsByTaz.set(id, []);
+    state.newConnectorsByTaz.get(id).push(connector);
+  }
   state.connectorNodes = state.data.connectorNodes || [];
+  state.dataIndexesReady = true;
   rebuildViewportSpatialIndexes([], []);
 }
 
@@ -1281,6 +1821,7 @@ async function loadViewportFeatures() {
   clearTimeout(state.viewportLoadTimer);
   state.viewportLoadTimer = null;
   state.viewportRequestId += 1;
+  await ensureGlobalReviewChunksForBounds(mapViewportSourceBounds());
   state.viewportMode = state.maplibreMap.getZoom() >= 11.5 ? "detail" : "overview";
   state.activeTileKeys = [];
   state.activeClusters = [];
@@ -1329,9 +1870,21 @@ function basePayloadForTaz(id, includeContext = true) {
 function rebuildGlobalConnectorIndex() {
   if (!state.data) return;
   const connectors = [];
-  state.connectorCountsByTaz = new Map();
-  for (const item of state.tazOrder) {
+  state.connectorCountsByTaz = new Map(state.tazOrder.map((item) => {
+    const tazId = String(item.id);
+    const edit = state.edits[tazId] || {};
+    const baseline = state.importedCc
+      ? (state.importedCc.get(tazId) || []).length
+      : Number(item.connectors || 0);
+    const count = state.importedCc
+      ? baseline
+      : Math.max(0, baseline - (edit.deleted?.length || 0) + (edit.added?.length || 0));
+    return [tazId, count];
+  }));
+  for (const taz of state.data.tazs) {
+    const item = { id: taz.id };
     const payload = basePayloadForTaz(item.id, false);
+    if (!payload) continue;
     applyImportedCc(payload);
     applySavedEdits(payload);
     state.connectorCountsByTaz.set(
@@ -1350,14 +1903,39 @@ function rebuildGlobalConnectorIndex() {
 }
 
 async function goToTaz(id, keepView = false) {
-  const index = state.tazOrder.findIndex((item) => String(item.id) === String(id));
+  const requestedId = String(id ?? "").trim();
+  const index = state.tazOrder.findIndex((item) => String(item.id) === requestedId);
   if (index < 0) {
-    toast(`TAZ ${id} not found.`);
-    return;
+    const numericId = Number(requestedId);
+    const numericTazIds = state.tazOrder
+      .map((item) => Number(item.id))
+      .filter(Number.isFinite)
+      .sort((left, right) => left - right);
+    const previous = Number.isFinite(numericId)
+      ? numericTazIds.filter((value) => value < numericId).at(-1)
+      : null;
+    const next = Number.isFinite(numericId)
+      ? numericTazIds.find((value) => value > numericId)
+      : null;
+    const nearby = [previous, next].filter((value) => value != null).join(" / ");
+    const message = `TAZ ${requestedId || "(blank)"} not found${nearby ? `. Nearest available: ${nearby}.` : "."}`;
+    qs("jumpInput").setAttribute("aria-invalid", "true");
+    status(message);
+    toast(message);
+    return false;
   }
+  qs("jumpInput").removeAttribute("aria-invalid");
   if (state.dirty && !confirm("Current edit is not saved. Continue?")) return;
-  state.currentIndex = index;
   const item = state.tazOrder[index];
+  const targetChunk = state.globalReviewChunkByTaz.get(String(item.id));
+  if (targetChunk && targetChunk !== state.activeGlobalReviewChunk) {
+    await activateGlobalReviewChunk(targetChunk, false);
+  } else {
+    await ensureGlobalReviewChunkForTaz(id);
+  }
+  state.currentIndex = activeReviewTazOrder().findIndex(
+    (activeItem) => String(activeItem.id) === String(item.id)
+  );
   state.payload = basePayloadForTaz(item.id);
   applyImportedCc(state.payload);
   applySavedEdits(state.payload);
@@ -1371,6 +1949,7 @@ async function goToTaz(id, keepView = false) {
   qs("jumpInput").value = item.id;
   updateMapLibreSelection();
   if (!keepView) setViewToPayload();
+  refreshMapLibreViewportSources();
   await loadViewportFeatures();
   state.payload = basePayloadForTaz(item.id);
   applyImportedCc(state.payload);
@@ -1382,6 +1961,7 @@ async function goToTaz(id, keepView = false) {
   const unavailable = state.payload.importUnavailableRows?.length || 0;
   const importWarning = unavailable ? `; ${unavailable} uploaded CC(s) reference nodes outside this page context` : "";
   status(`TAZ ${item.id}: ${state.payload.connectors.length} connector(s) | MapLibre MVT network ready${importWarning}`);
+  return true;
 }
 
 function applyImportedCc(payload) {
@@ -1432,8 +2012,8 @@ function updateImportedCcUi() {
   if (!state.importedCc) {
     qs("uploadBadge").classList.add("hidden");
     qs("resetCcBtn").classList.add("hidden");
-    qs("runFolder").textContent = state.index.generatedFrom;
-    qs("ccStat").textContent = state.data.connectors.length;
+    qs("runFolder").textContent = state.index.dataset || state.index.generatedFrom;
+    qs("ccStat").textContent = state.index.counts?.connectors ?? state.data.connectors.length;
     return;
   }
   const count = Array.from(state.importedCc.values()).reduce((sum, rows) => sum + rows.length, 0);
@@ -1470,6 +2050,7 @@ async function importCcFiles(event) {
     state.importedCc = new Map(Object.entries(compactByTaz));
     state.importedSource = result.sourceNames.join(", ");
     state.edits = {};
+    state.crossTazConflictFilterReady = false;
     state.undoStack = [];
     state.redoStack = [];
     localStorage.removeItem(STORAGE_KEYS.edits);
@@ -1495,6 +2076,7 @@ async function resetImportedCc() {
   state.importedCc = null;
   state.importedSource = "";
   state.edits = {};
+  state.crossTazConflictFilterReady = false;
   state.undoStack = [];
   state.redoStack = [];
   localStorage.removeItem(STORAGE_KEYS.importedCc);
@@ -1509,7 +2091,7 @@ async function resetImportedCc() {
 
 function resetBrowserData() {
   const confirmed = confirm(
-    "Reset this tool to its published defaults? This permanently deletes browser-saved connector edits, added or imported HERE_MISS changes, QC notes, reviewed status, uploaded CC data, and custom layer order. Export anything you need first."
+    "Reset the Global TAZ / Global CC review data to its published defaults? This permanently deletes browser-saved Global CC edits, added or imported HERE_MISS changes, Global TAZ QC notes and reviewed status, uploaded Global CC data, and the Global layer order. Saved work for the previous New TAZ / New CC dataset is preserved. Export anything you need first."
   );
   if (!confirmed) return;
   Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
@@ -1517,8 +2099,16 @@ function resetBrowserData() {
 }
 
 function shiftTaz(delta) {
-  const next = Math.max(0, Math.min(state.tazOrder.length - 1, state.currentIndex + delta));
-  goToTaz(state.tazOrder[next].id);
+  const scopedOrder = filteredReviewTazOrder();
+  if (!scopedOrder.length) return;
+  const currentIndex = scopedOrder.findIndex(
+    (item) => String(item.id) === String(state.payload?.tazId)
+  );
+  const next = Math.max(
+    0,
+    Math.min(scopedOrder.length - 1, Math.max(0, currentIndex) + delta)
+  );
+  goToTaz(scopedOrder[next].id);
 }
 
 function applySavedEdits(payload) {
@@ -1535,6 +2125,7 @@ function applySavedEdits(payload) {
 
 function saveLocal() {
   localStorage.setItem(STORAGE_KEYS.edits, JSON.stringify(state.edits));
+  state.crossTazConflictFilterReady = false;
   rebuildGlobalConnectorIndex();
   updateHistoryButtons();
   renderQueue();
@@ -1613,12 +2204,16 @@ function setViewToPayload() {
 
 function setViewToAllData() {
   const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-  for (const taz of state.data.tazs) {
-    const item = geomBounds(taz.geom);
-    bounds.minX = Math.min(bounds.minX, item.minX);
-    bounds.maxX = Math.max(bounds.maxX, item.maxX);
-    bounds.minY = Math.min(bounds.minY, item.minY);
-    bounds.maxY = Math.max(bounds.maxY, item.maxY);
+  const centroids = state.activeGlobalReviewChunk
+    ? (state.data.centroids || []).filter(
+        (centroid) => state.globalReviewChunkByTaz.get(String(centroid.id)) === state.activeGlobalReviewChunk
+      )
+    : (state.data.centroids || []);
+  for (const centroid of centroids) {
+    bounds.minX = Math.min(bounds.minX, centroid.x);
+    bounds.maxX = Math.max(bounds.maxX, centroid.x);
+    bounds.minY = Math.min(bounds.minY, centroid.y);
+    bounds.maxY = Math.max(bounds.maxY, centroid.y);
   }
   const pad = Math.max(2000, Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.03);
   state.view = { minX: bounds.minX - pad, maxX: bounds.maxX + pad, minY: bounds.minY - pad, maxY: bounds.maxY + pad };
@@ -1855,8 +2450,8 @@ async function importMissingLinkFiles(event) {
         bCoord: [Number(second.x), Number(second.y)],
         records: Math.max(1, Math.min(2, Number(link.records) || 2)),
         lanes: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : 1,
-        hereMiss: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : 1,
-        fclass: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : 32,
+        hereMiss: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : MISSING_LINK_DEFAULTS.hereMiss,
+        fclass: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : MISSING_LINK_DEFAULTS.fclass,
       }];
     });
     if (!loadedLinks.length) {
@@ -2247,13 +2842,12 @@ function findNodeAt(pt, hitRadius = 13) {
   return best;
 }
 
-function findEligibleNodeAt(pt, hitRadius = 18) {
-  const rendered = renderedNodeAt(pt, hitRadius, true);
+function findEditableNodeAt(pt, hitRadius = 18) {
+  const rendered = renderedNodeAt(pt, hitRadius, false);
   if (rendered) return rendered;
   let best = null;
   let bestDist = hitRadius;
   for (const n of state.payload.nodes) {
-    if (!n.eligible) continue;
     const p = project([n.x, n.y]);
     const d = Math.hypot(pt.x - p.x, pt.y - p.y);
     if (d < bestDist) {
@@ -2264,13 +2858,12 @@ function findEligibleNodeAt(pt, hitRadius = 18) {
   return best;
 }
 
-function nearestEligibleNode(pt) {
-  const rendered = renderedNodeAt(pt, 24, true);
+function nearestEditableNode(pt) {
+  const rendered = renderedNodeAt(pt, 24, false);
   if (rendered) return rendered;
   let best = null;
   let bestDist = 24;
   for (const n of state.payload.nodes) {
-    if (!n.eligible) continue;
     const p = project([n.x, n.y]);
     const d = Math.hypot(pt.x - p.x, pt.y - p.y);
     if (d < bestDist) {
@@ -2438,7 +3031,6 @@ function connectorAngleConflict(node, excludedCcPt = null) {
 }
 
 function connectorTargetValidation(node, excludedCcPt = null) {
-  if (!node?.eligible) return "Major node is locked. Choose a non-major node (MAJOR_LEVEL 3/4/5).";
   const ownerTazId = crossTazNodeOwner(node.id);
   if (ownerTazId) return `Node ${node.id} is already used by TAZ ${ownerTazId}. Choose a nearby different node.`;
   return "";
@@ -2446,6 +3038,10 @@ function connectorTargetValidation(node, excludedCcPt = null) {
 
 function manualOverrideWarnings(node, excludedCcPt = null) {
   const warnings = [];
+  if (!node?.eligible) {
+    const level = Number.isFinite(Number(node?.majorLevel)) ? `MAJOR_LEVEL ${Number(node.majorLevel)}` : "unknown MAJOR_LEVEL";
+    warnings.push(`red major node ${node?.id || ""} (${level}) is blocked during preprocessing`);
+  }
   const angleConflict = connectorAngleConflict(node, excludedCcPt);
   if (angleConflict) {
     warnings.push(`${angleConflict.separation.toFixed(1)} degrees from ${angleConflict.connector.ccPt}`);
@@ -2472,9 +3068,12 @@ function findTazLabelAt(pt, radius = 22) {
 }
 
 function renderedNodeAt(pt, hitRadius, eligibleOnly) {
-  if (!state.maplibreLoaded || state.maplibreMap.getZoom() < 11.5) return null;
+  if (!state.maplibreLoaded || state.maplibreMap.getZoom() < 11) return null;
   const box = [[pt.x - hitRadius, pt.y - hitRadius], [pt.x + hitRadius, pt.y + hitRadius]];
-  const features = state.maplibreMap.queryRenderedFeatures(box, { layers: ["major-nodes", "non-major-nodes"] });
+  const features = state.maplibreMap.queryRenderedFeatures(
+    box,
+    { layers: ["candidate-nodes-preview", "major-nodes", "non-major-nodes"] }
+  );
   let best = null;
   let bestDistance = hitRadius;
   for (const feature of features) {
@@ -2484,9 +3083,14 @@ function renderedNodeAt(pt, hitRadius, eligibleOnly) {
       x: Number(properties.x),
       y: Number(properties.y),
       majorLevel: Number(properties.major_level),
+      outsideGa: properties.outside_ga === true || properties.outside_ga === 1 || properties.outside_ga === "true",
       majorInt: Number(properties.major_level) <= 2 ? "Y" : "N",
       eligible: properties.eligible === true || properties.eligible === 1 || properties.eligible === "true",
     };
+    if (node.outsideGa) {
+      node.majorInt = "N";
+      node.eligible = true;
+    }
     if (!node.id || !Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
     if (eligibleOnly && !node.eligible) continue;
     const projected = project([node.x, node.y]);
@@ -2501,7 +3105,10 @@ function renderedNodeAt(pt, hitRadius, eligibleOnly) {
 
 function findTazAt(pt) {
   if (state.maplibreLoaded) {
-    const feature = state.maplibreMap.queryRenderedFeatures([pt.x, pt.y], { layers: ["taz-current-fill", "taz-hover-fill", "taz-fill"] })[0];
+    const feature = state.maplibreMap.queryRenderedFeatures(
+      [pt.x, pt.y],
+      { layers: ["global-taz-current-fill", "global-taz-hover-fill", "global-taz-fill"] }
+    )[0];
     const rendered = feature ? state.tazById.get(String(feature.properties?.taz_id)) : null;
     if (rendered) return rendered;
   }
@@ -2559,7 +3166,7 @@ function applyEditToNode(node) {
   }
   const validationError = connectorTargetValidation(node, state.selected.ccPt);
   if (validationError) {
-    toast(validationError);
+    showWarning(validationError);
     return;
   }
   const overrideWarnings = manualOverrideWarnings(node, state.selected.ccPt);
@@ -2587,7 +3194,12 @@ function applyEditToNode(node) {
   saveLocal();
   updateInspector();
   draw();
-  toast(`Saved ${state.selected.ccPt} to node ${node.id}.${overrideWarnings.length ? ` Manual override: ${overrideWarnings.join("; ")}.` : ""}`);
+  const savedMessage = `Saved ${state.selected.ccPt} to node ${node.id}.`;
+  if (overrideWarnings.length) {
+    showWarning(`${savedMessage}\n\nManual override warning:\n- ${overrideWarnings.join("\n- ")}`);
+  } else {
+    toast(savedMessage);
+  }
 }
 
 function selectMissingLink(link) {
@@ -2868,6 +3480,7 @@ async function editConnectorTableField(connector, field, rawValue) {
   const editKey = connectorEditKey(tazId, connector);
   let value = rawValue;
   let targetNode = null;
+  let overrideWarnings = [];
   if (field === "ccPt") {
     value = String(rawValue).trim();
     if (!value) throw new Error("CC_PT cannot be empty.");
@@ -2882,6 +3495,9 @@ async function editConnectorTableField(connector, field, rawValue) {
     if (!targetNode) throw new Error(`Node ${value} was not found in the published node index.`);
     const validationError = connectorTargetValidation(targetNode, connector.ccPt);
     if (validationError && String(value) !== String(connector.nodeId)) throw new Error(validationError);
+    if (String(value) !== String(connector.nodeId)) {
+      overrideWarnings = manualOverrideWarnings(targetNode, connector.ccPt);
+    }
   } else if (field === "majorLevel") {
     value = numericTableValue(rawValue, "Major", { min: 0 });
   } else if (field === "outsideLen") {
@@ -2913,7 +3529,12 @@ async function editConnectorTableField(connector, field, rawValue) {
   updateInspector();
   updateMapLibreSelection();
   draw();
-  toast(`Updated ${connector.ccPt} ${field}.`);
+  const updatedMessage = `Updated ${connector.ccPt} ${field}.`;
+  if (overrideWarnings.length) {
+    showWarning(`${updatedMessage}\n\nManual override warning:\n- ${overrideWarnings.join("\n- ")}`);
+  } else {
+    toast(updatedMessage);
+  }
 }
 
 async function editMissingLinkTableField(link, field, rawValue) {
@@ -3000,7 +3621,9 @@ function renderInspectorTables(force = false) {
     taz: state.payload?.tazId || "",
     connectors: connectors.map((item) => [item.ccPt, item.nodeId, item.majorLevel, item.outsideLen, item.endBoundaryDist, item.interiorFallback, item.status]),
     missing: state.missingLinks.map((item) => [item.pairKey, item.a, item.b, item.records, item.lanes, item.hereMiss, item.fclass]),
-    tazRows: (state.tazOrder || []).map((item) => [item.id, getTazStatus(item.id), state.connectorCountsByTaz.get(String(item.id)) ?? 0, state.edits[String(item.id)]?.note || ""]),
+    tazRows: state.inspectorTab === "taz"
+      ? activeReviewTazOrder().map((item) => [item.id, getTazStatus(item.id), state.connectorCountsByTaz.get(String(item.id)) ?? 0, state.edits[String(item.id)]?.note || ""])
+      : [],
     selectedCc,
     selectedMissing,
     tab: state.inspectorTab,
@@ -3102,12 +3725,12 @@ function renderInspectorTables(force = false) {
         ariaLabel: `LANES for HERE_MISS ${link.a} ${link.b}`,
         onCommit: (value) => editMissingLinkTableField(link, "lanes", value),
       });
-      appendEditableTableCell(row, link.hereMiss ?? 1, {
+      appendEditableTableCell(row, link.hereMiss ?? MISSING_LINK_DEFAULTS.hereMiss, {
         choices: ["0", "1"],
         ariaLabel: `HERE_MISS for ${link.a} ${link.b}`,
         onCommit: (value) => editMissingLinkTableField(link, "hereMiss", value),
       });
-      appendEditableTableCell(row, link.fclass ?? 32, {
+      appendEditableTableCell(row, link.fclass ?? MISSING_LINK_DEFAULTS.fclass, {
         type: "number",
         min: 0,
         step: 1,
@@ -3119,36 +3742,38 @@ function renderInspectorTables(force = false) {
   }
 
   const tazBody = qs("tazStatusTableBody");
-  tazBody.replaceChildren();
-  const currentTazId = String(state.payload?.tazId || "");
-  for (const item of state.tazOrder || []) {
-    const tazId = String(item.id);
-    const row = document.createElement("tr");
-    row.dataset.tazId = tazId;
-    row.classList.toggle("current-row", tazId === currentTazId);
-    row.addEventListener("click", () => goToTaz(tazId));
-    appendTableCell(row, tazId, "computed-cell");
-    appendEditableTableCell(row, getTazStatus(tazId), {
-      choices: TAZ_STATUSES,
-      ariaLabel: `QC status for TAZ ${tazId}`,
-      onCommit: (value) => {
-        setTazStatus(tazId, value);
-        updateInspector();
-      },
-    });
-    appendTableCell(row, state.connectorCountsByTaz.get(tazId) ?? 0, "computed-cell");
-    appendEditableTableCell(row, state.edits[tazId]?.note || "", {
-      className: "note-cell",
-      editorClass: "table-editor-note",
-      ariaLabel: `QC note for TAZ ${tazId}`,
-      onCommit: (value) => editTazNote(tazId, value),
-    });
-    tazBody.appendChild(row);
+  if (state.inspectorTab === "taz") {
+    tazBody.replaceChildren();
+    const currentTazId = String(state.payload?.tazId || "");
+    for (const item of activeReviewTazOrder()) {
+      const tazId = String(item.id);
+      const row = document.createElement("tr");
+      row.dataset.tazId = tazId;
+      row.classList.toggle("current-row", tazId === currentTazId);
+      row.addEventListener("click", () => goToTaz(tazId));
+      appendTableCell(row, tazId, "computed-cell");
+      appendEditableTableCell(row, getTazStatus(tazId), {
+        choices: TAZ_STATUSES,
+        ariaLabel: `QC status for TAZ ${tazId}`,
+        onCommit: (value) => {
+          setTazStatus(tazId, value);
+          updateInspector();
+        },
+      });
+      appendTableCell(row, state.connectorCountsByTaz.get(tazId) ?? 0, "computed-cell");
+      appendEditableTableCell(row, state.edits[tazId]?.note || "", {
+        className: "note-cell",
+        editorClass: "table-editor-note",
+        ariaLabel: `QC note for TAZ ${tazId}`,
+        onCommit: (value) => editTazNote(tazId, value),
+      });
+      tazBody.appendChild(row);
+    }
   }
 
   qs("ccTableCount").textContent = connectors.length;
   qs("missingLinkTableCount").textContent = state.missingLinks.length;
-  qs("tazStatusTableCount").textContent = state.tazOrder?.length || 0;
+  qs("tazStatusTableCount").textContent = activeReviewTazOrder().length;
   requestAnimationFrame(() => {
     qs("ccTableBody").querySelector(".selected-row")?.scrollIntoView({ block: "nearest", inline: "nearest" });
     qs("missingLinkTableBody").querySelector(".selected-row")?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -3185,7 +3810,7 @@ function saveEdit() {
     return;
   }
   if (!state.pendingNode) {
-    toast("Choose a new eligible node first.");
+    toast("Choose a new node first.");
     return;
   }
   applyEditToNode(state.pendingNode);
@@ -3195,7 +3820,7 @@ function toggleAddMode() {
   if (state.missingLinkMode) stopMissingLinkMode();
   state.addMode = !state.addMode;
   updateAddModeUi();
-  toast(state.addMode ? "Tap an eligible node to add CC." : "Add CC off.");
+  toast(state.addMode ? "Tap any node to add CC. Red major nodes require a Warning acknowledgement." : "Add CC off.");
 }
 
 function updateAddModeUi() {
@@ -3293,10 +3918,10 @@ function updateMissingLinkModeUi() {
   if (!button || !exportButton) return;
   button.classList.toggle("active", state.missingLinkMode);
   button.textContent = !state.missingLinkMode
-    ? "Add Missing Links"
+    ? "Add Missing"
     : state.missingLinkStartNode
-      ? `Select second node (${state.missingLinkStartNode.id})`
-      : "Select first node";
+      ? `Pick Node 2 (${state.missingLinkStartNode.id})`
+      : "Pick Node 1";
   exportButton.textContent = `Export HERE_MISS (${state.missingLinks.length})`;
   state.canvas?.classList.toggle("missing-link-mode", state.missingLinkMode);
 }
@@ -3330,9 +3955,9 @@ function chooseMissingLinkNode(node) {
     aCoord: [Number(first.x), Number(first.y)],
     bCoord: [Number(node.x), Number(node.y)],
     records: 2,
-    lanes: 1,
-    hereMiss: 1,
-    fclass: 32,
+    lanes: MISSING_LINK_DEFAULTS.lanes,
+    hereMiss: MISSING_LINK_DEFAULTS.hereMiss,
+    fclass: MISSING_LINK_DEFAULTS.fclass,
   };
   state.missingLinks.push(createdLink);
   state.selectedMissingLink = createdLink;
@@ -3352,7 +3977,7 @@ function chooseMissingLinkNode(node) {
 function addConnector(node) {
   const validationError = connectorTargetValidation(node);
   if (validationError) {
-    toast(validationError);
+    showWarning(validationError);
     return;
   }
   const tazId = state.payload.tazId;
@@ -3384,21 +4009,39 @@ function addConnector(node) {
   selectConnector(connector);
   const countWarning = state.payload.connectors.length > 3 ? `${state.payload.connectors.length} CCs in TAZ` : "";
   const allWarnings = [...overrideWarnings, countWarning].filter(Boolean);
-  toast(`Added ${connector.ccPt} to node ${node.id}.${allWarnings.length ? ` Manual override: ${allWarnings.join("; ")}.` : ""}`);
+  const addedMessage = `Added ${connector.ccPt} to node ${node.id}.`;
+  if (allWarnings.length) {
+    showWarning(`${addedMessage}\n\nManual override warning:\n- ${allWarnings.join("\n- ")}`);
+  } else {
+    toast(addedMessage);
+  }
 }
 
-function markReviewed() {
+async function markReviewed(direction = 1) {
   const tazId = state.payload.tazId;
   pushEditHistory();
   state.edits[tazId] ||= {};
   state.edits[tazId].qcStatus = "REVIEWED";
   delete state.edits[tazId].reviewed;
   state.edits[tazId].note = qs("qcNote").value;
-  saveLocal();
-  toast(`TAZ ${tazId} marked reviewed.`);
+  localStorage.setItem(STORAGE_KEYS.edits, JSON.stringify(state.edits));
+  updateHistoryButtons();
+  const scopedOrder = filteredReviewTazOrder();
+  const filteredIndex = scopedOrder.findIndex((item) => String(item.id) === String(tazId));
+  const targetIndex = filteredIndex + (direction < 0 ? -1 : 1);
+  if (filteredIndex >= 0 && targetIndex >= 0 && targetIndex < scopedOrder.length) {
+    const targetId = scopedOrder[targetIndex].id;
+    await goToTaz(targetId);
+    toast(`TAZ ${tazId} marked reviewed. Moved to TAZ ${targetId}.`);
+  } else {
+    toast(`TAZ ${tazId} marked reviewed. This is the ${direction < 0 ? "first" : "last"} TAZ in the current list.`);
+  }
 }
 
 async function allConnectorsForExport() {
+  const activeChunk = state.activeGlobalReviewChunk;
+  const currentTazId = state.payload?.tazId;
+  await ensureAllGlobalReviewChunks();
   const rows = [];
   for (const item of state.tazOrder) {
     const payload = basePayloadForTaz(item.id, false);
@@ -3427,6 +4070,7 @@ async function allConnectorsForExport() {
       });
     }
   }
+  await restoreSingleGlobalReviewChunk(activeChunk, currentTazId);
   return rows;
 }
 
@@ -3442,6 +4086,48 @@ function findCrossTazNodeConflicts(rows) {
   return Array.from(owners.entries())
     .filter(([, tazIds]) => tazIds.size > 1)
     .map(([nodeId, tazIds]) => ({ nodeId, tazIds: Array.from(tazIds).sort() }));
+}
+
+function cacheCrossTazSharedNodeReview(conflicts) {
+  const nodesByTaz = new Map();
+  for (const conflict of conflicts) {
+    for (const tazId of conflict.tazIds) {
+      if (!nodesByTaz.has(String(tazId))) nodesByTaz.set(String(tazId), []);
+      nodesByTaz.get(String(tazId)).push(String(conflict.nodeId));
+    }
+  }
+  for (const nodeIds of nodesByTaz.values()) {
+    nodeIds.sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  }
+  state.crossTazConflictNodesByTaz = nodesByTaz;
+  state.crossTazConflictTazIds = new Set(nodesByTaz.keys());
+  state.crossTazConflictFilterReady = true;
+}
+
+async function refreshCrossTazSharedNodeReview() {
+  if (state.crossTazConflictFilterLoading) return;
+  state.crossTazConflictFilterLoading = true;
+  const filter = qs("queueFilter");
+  filter.disabled = true;
+  qs("tazListCount").textContent = "Scanning shared nodes...";
+  status("Building cross-TAZ shared-node review list...");
+  try {
+    const sourceRows = await allConnectorsForExport();
+    const conflicts = findCrossTazNodeConflicts(sourceRows);
+    cacheCrossTazSharedNodeReview(conflicts);
+    const currentBlockCount = filteredReviewTazOrder("cross-taz-shared-node").length;
+    status(`Cross-TAZ review list ready: ${conflicts.length} shared node(s) across ${state.crossTazConflictTazIds.size} TAZ(s); ${currentBlockCount} in this block. Final CC export is allowed.`);
+    toast(`Review list ready: ${conflicts.length} shared node(s) across ${state.crossTazConflictTazIds.size} TAZ(s).`);
+  } catch (error) {
+    console.error(error);
+    filter.value = "all";
+    status(`Could not build cross-TAZ review list: ${error.message}`);
+    toast(`Cross-TAZ review scan failed: ${error.message}`);
+  } finally {
+    state.crossTazConflictFilterLoading = false;
+    filter.disabled = false;
+    renderQueue();
+  }
 }
 
 function findTazAngleConflicts(rows) {
@@ -3478,12 +4164,7 @@ async function exportFinalCc() {
   toast(`Preparing final CC ${format.toUpperCase()}${includeNotes ? " and QCNOTES" : ""}...`);
   const sourceRows = await allConnectorsForExport();
   const conflicts = findCrossTazNodeConflicts(sourceRows);
-  if (conflicts.length) {
-    const examples = conflicts.slice(0, 4).map((item) => `${item.nodeId}: TAZ ${item.tazIds.join("/")}`).join("; ");
-    toast(`Resolve ${conflicts.length} cross-TAZ shared node(s) before export.`);
-    status(`Final CC export blocked. Shared nodes: ${examples}${conflicts.length > 4 ? "; ..." : ""}`);
-    return;
-  }
+  cacheCrossTazSharedNodeReview(conflicts);
   const rows = [];
   const noteRows = [];
   for (const r of sourceRows) {
@@ -3519,16 +4200,22 @@ async function exportFinalCc() {
     }
   }
   const noteStatus = includeNotes ? ` and ${noteRows.length} QC note records` : " without QCNOTES";
-  status(`Exported ${rows.length} ${format.toUpperCase()} CC records${noteStatus}.`);
+  const sharedNodeStatus = conflicts.length
+    ? ` Warning: ${conflicts.length} cross-TAZ shared node(s) remain; use the Cross-TAZ Shared Node Review filter.`
+    : "";
+  status(`Exported ${rows.length} ${format.toUpperCase()} CC records${noteStatus}.${sharedNodeStatus}`);
+  if (conflicts.length) {
+    toast(`Exported with ${conflicts.length} cross-TAZ shared node(s). Review filter is ready.`);
+  }
 }
 
 function missingLinkExportRows() {
   const rows = [];
   for (const link of state.missingLinks) {
     const properties = {
-      LANES: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : 1,
-      HERE_MISS: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : 1,
-      FCLASS: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : 32,
+      LANES: Number.isFinite(Number(link.lanes)) ? Number(link.lanes) : MISSING_LINK_DEFAULTS.lanes,
+      HERE_MISS: Number.isFinite(Number(link.hereMiss)) ? Number(link.hereMiss) : MISSING_LINK_DEFAULTS.hereMiss,
+      FCLASS: Number.isFinite(Number(link.fclass)) ? Number(link.fclass) : MISSING_LINK_DEFAULTS.fclass,
     };
     rows.push({ A: link.a, B: link.b, ...properties });
     if ((Number(link.records) || 2) >= 2) rows.push({ A: link.b, B: link.a, ...properties });
@@ -3569,17 +4256,29 @@ function tazQcStatusRows() {
 }
 
 async function exportTazQcStatus() {
-  const format = document.querySelector('input[name="tazStatusExportFormat"]:checked')?.value || "csv";
+  const format = document.querySelector('input[name="tazStatusExportFormat"]:checked')?.value || "dbf";
   hideTazStatusExportDialog();
   const rows = tazQcStatusRows();
-  if (format === "csv") {
+  if (format === "dbf") {
+    downloadBlob(makeDbf(rows, [
+      { name: "TAZ_ID", len: 20 },
+      { name: "QC_STATUS", len: 20 },
+      { name: "QC_NOTES", len: 250 },
+    ]), "taz_qc_status.dbf", "application/octet-stream");
+  } else if (format === "csv") {
     downloadBlob(makeCsv(rows, ["TAZ_ID", "QC_STATUS", "QC_NOTES"]), "taz_qc_status.csv", "text/csv;charset=utf-8");
   } else {
     toast("Preparing TAZ QC Status Shapefile...");
+    const activeChunk = state.activeGlobalReviewChunk;
+    const currentTazId = state.payload?.tazId;
+    await ensureAllGlobalReviewChunks();
     const features = rows.map((row) => ({ ...row, geom: state.tazById.get(row.TAZ_ID)?.geom }));
-    downloadBlob(await makeTazStatusShapefile(features), "taz_qc_status_shapefile.zip", "application/zip");
+    const archive = await makeTazStatusShapefile(features);
+    await restoreSingleGlobalReviewChunk(activeChunk, currentTazId);
+    downloadBlob(archive, "taz_qc_status_shapefile.zip", "application/zip");
   }
-  status(`Exported ${rows.length} TAZ QC status records as ${format === "csv" ? "CSV" : "Shapefile ZIP"}.`);
+  const formatLabel = format === "dbf" ? "DBF" : format === "csv" ? "CSV" : "Shapefile ZIP";
+  status(`Exported ${rows.length} TAZ QC status records as ${formatLabel}.`);
   toast(`Exported ${rows.length} TAZ QC statuses.`);
 }
 

@@ -4,8 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TAZ Connector QAQC</title>
+    <link rel="preload" href="data/global-review.json" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="data/review-changed-607.json" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="data/review-auto-fixed-shared.json" as="fetch" crossorigin="anonymous" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css" />
-    <link rel="stylesheet" href="styles.css?v=20260723-editable-tables-menus" />
+    <link rel="stylesheet" href="styles.css?v=20260724-manual-major-warning" />
   </head>
   <body>
     <header class="topbar">
@@ -25,21 +28,24 @@
             <button id="zoomAllBtn">Zoom All</button>
             <label class="jump">Jump to TAZ <input id="jumpInput" /></label>
             <button id="jumpBtn">Go</button>
+            <label class="data-block-picker">
+              Data block
+              <select id="dataBlockSelect" aria-label="Global TAZ data block"></select>
+            </label>
           </div>
         </details>
+        <div class="toolbar-edit-expanded" role="group" aria-label="Edit actions">
+          <span class="toolbar-group-label">EDIT</span>
+          <button id="undoBtn" disabled title="Undo Edit">Undo</button>
+          <button id="redoBtn" disabled title="Redo Edit">Redo</button>
+          <button id="saveBtn" class="primary hidden">Save</button>
+          <button id="addCcBtn">Add CC</button>
+          <button id="addMissingLinkBtn">Add Missing</button>
+          <button id="reviewedPrevBtn" class="review-action" title="Mark Reviewed and open the previous TAZ">Review + Previous</button>
+          <button id="reviewedBtn" class="review-action" title="Mark Reviewed and open the next TAZ">Review + Next</button>
+        </div>
         <details class="toolbar-menu">
-          <summary>Edit</summary>
-          <div class="toolbar-menu-panel">
-            <button id="undoBtn" disabled>Undo Edit</button>
-            <button id="redoBtn" disabled>Redo Edit</button>
-            <button id="saveBtn" class="primary hidden">Save Edit</button>
-            <button id="addCcBtn">Add CC</button>
-            <button id="addMissingLinkBtn">Add Missing Links</button>
-            <button id="reviewedBtn">Mark Reviewed</button>
-          </div>
-        </details>
-        <details class="toolbar-menu">
-          <summary>Data</summary>
+          <summary>INPUT</summary>
           <div class="toolbar-menu-panel">
             <button id="loadCcBtn">Load CC File</button>
             <button id="resetCcBtn" class="hidden">Use Default CC</button>
@@ -48,14 +54,14 @@
           </div>
         </details>
         <details class="toolbar-menu toolbar-menu-right">
-          <summary>Export</summary>
+          <summary>OUTPUT</summary>
           <div class="toolbar-menu-panel">
             <button id="finalExportBtn">Final CC Export</button>
             <button id="exportMissingLinksBtn">Export HERE_MISS</button>
             <button id="tazStatusExportBtn">Export TAZ QC Status</button>
           </div>
         </details>
-        <button id="instructionsBtn">Help</button>
+        <button id="instructionsBtn" class="toolbar-direct-help">Help</button>
         <input id="hereMissingFileInput" class="hidden" type="file" accept=".dbf,.csv,.cvs" />
         <input id="ccFileInput" class="hidden" type="file" multiple accept=".dbf,.csv,.cvs,.shp,.json,.geojson" />
         <div id="uploadBadge" class="badge upload-badge hidden"></div>
@@ -81,7 +87,7 @@
           </div>
         </fieldset>
         <label class="export-toggle">
-          <input id="includeQcNotes" type="checkbox" checked />
+          <input id="includeQcNotes" type="checkbox" />
           <span class="toggle-track" aria-hidden="true"></span>
           <span>Include QCNOTES companion file</span>
         </label>
@@ -102,15 +108,29 @@
         <fieldset>
           <legend>Format</legend>
           <div class="export-format-options">
-            <label><input type="radio" name="tazStatusExportFormat" value="csv" checked /> CSV</label>
+            <label><input type="radio" name="tazStatusExportFormat" value="dbf" checked /> DBF</label>
+            <label><input type="radio" name="tazStatusExportFormat" value="csv" /> CSV</label>
             <label><input type="radio" name="tazStatusExportFormat" value="shp" /> Shapefile (.zip)</label>
           </div>
         </fieldset>
-        <p class="export-hint">Exports TAZ_ID, QC_STATUS, and QC_NOTES. Shapefile includes the TAZ polygon geometry.</p>
+        <p class="export-hint">Exports TAZ_ID, QC_STATUS, and QC_NOTES. DBF is the default; Shapefile also includes TAZ polygon geometry.</p>
       </div>
       <div class="export-dialog-actions">
         <button id="cancelTazStatusExportBtn" type="button">Cancel</button>
         <button id="downloadTazStatusExportBtn" type="button" class="primary">Download</button>
+      </div>
+    </dialog>
+
+    <dialog id="warningDialog" class="warning-dialog" aria-labelledby="warningDialogTitle">
+      <div class="warning-dialog-head">
+        <h2 id="warningDialogTitle">Warning</h2>
+        <button id="closeWarningDialogBtn" type="button" title="Close warning">x</button>
+      </div>
+      <div class="warning-dialog-body">
+        <p id="warningDialogMessage"></p>
+      </div>
+      <div class="warning-dialog-actions">
+        <button id="acknowledgeWarningBtn" type="button" class="warning-acknowledge">Close Warning</button>
       </div>
     </dialog>
 
@@ -150,6 +170,9 @@
               <option value="flag">Flag</option>
               <option value="edited">Edited</option>
               <option value="reviewed">Reviewed</option>
+              <option value="cross-taz-shared-node">Shared Nodes</option>
+              <option value="auto-fixed-shared">Auto-fixed Shared</option>
+              <option value="changed-607">Changed 607</option>
             </select>
           </label>
         </div>
@@ -168,6 +191,20 @@
         </label>
         <div id="basemapAttribution" class="basemap-attribution"></div>
         <div class="map-help">Wheel/pinch: zoom | Drag map: pan | Double-click TAZ: select | Click CC: select | Drag endpoint: snap</div>
+        <section id="tazStatusSummary" class="taz-status-summary" aria-label="TAZ status summary">
+          <div class="taz-status-summary-head">
+            <strong>TAZ Status</strong>
+            <span id="statusReviewedPercent">--%</span>
+          </div>
+          <div class="taz-status-progress" aria-hidden="true"><span id="statusReviewedProgress"></span></div>
+          <div class="taz-status-summary-grid">
+            <span><i class="status-dot reviewed"></i>Reviewed</span><strong id="statusReviewedCount">--</strong>
+            <span><i class="status-dot edited"></i>Edited</span><strong id="statusEditedCount">--</strong>
+            <span><i class="status-dot flag"></i>Flag</span><strong id="statusFlagCount">--</strong>
+            <span><i class="status-dot waiting-for-qc"></i>Waiting</span><strong id="statusWaitingCount">--</strong>
+          </div>
+          <div class="taz-status-summary-total"><span>Total</span><strong id="statusTotalCount">--</strong></div>
+        </section>
         <div class="legend">
           <div class="legend-title">Legend <small>drag · top = front</small></div>
           <div class="other-taz-visibility">
@@ -175,14 +212,16 @@
             <input id="otherTazVisibility" type="range" min="0" max="100" step="5" value="55" aria-label="Other TAZ visibility" />
           </div>
           <div id="legendLayers">
-            <label class="legend-layer" data-layer-row="tazLabels"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="tazLabels" checked /><span class="swatch text-label">123</span>TAZ Labels</label>
-            <label class="legend-layer" data-layer-row="centroids"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="centroids" checked /><span class="swatch star">▲</span>Centroid</label>
-            <label class="legend-layer" data-layer-row="connectors"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Centroid Connector</label>
+            <label class="legend-layer" data-layer-row="tazLabels"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="tazLabels" checked /><span class="swatch text-label">123</span>Global TAZ Labels</label>
+            <label class="legend-layer" data-layer-row="centroids"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="centroids" checked /><span class="swatch star">▲</span>Global Centroids</label>
+            <label class="legend-layer" data-layer-row="connectors"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="connectors" checked /><span class="swatch line cc"></span>Global CC (14,921)</label>
             <label class="legend-layer" data-layer-row="hereMiss"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="hereMiss" checked /><span class="swatch line here-miss"></span>HERE_MISS Links</label>
+            <label class="legend-layer" data-layer-row="newConnectors"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="newConnectors" /><span class="swatch line new-cc"></span>New CC (previous, hidden)</label>
+            <label class="legend-layer" data-layer-row="newTaz"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="newTaz" /><span class="swatch poly new-taz"></span>New TAZ (previous, hidden)</label>
             <label class="legend-layer" data-layer-row="majorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="majorNodes" checked /><span class="swatch dot major"></span>Major Node</label>
-            <label class="legend-layer" data-layer-row="nonMajorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="nonMajorNodes" checked /><span class="swatch dot nonmajor"></span>Non-Major Nodes / clusters</label>
-            <label class="legend-layer" data-layer-row="gstdm"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="gstdm" checked /><span class="swatch line gstdm"></span>GSTDM Links</label>
-            <label class="legend-layer" data-layer-row="allTaz"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="allTaz" checked /><span class="swatch poly all"></span>TAZ Boundary (658)</label>
+            <label class="legend-layer" data-layer-row="nonMajorNodes"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="nonMajorNodes" checked /><span class="swatch dot nonmajor"></span>Eligible Nodes (incl. 35,147 outside GA)</label>
+            <label class="legend-layer" data-layer-row="gstdm"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="gstdm" checked /><span class="swatch line gstdm"></span>GSTDM Global Model Links</label>
+            <label class="legend-layer" data-layer-row="allTaz"><span class="drag-handle">⋮⋮</span><input type="checkbox" data-layer="allTaz" checked /><span class="swatch poly all"></span>Global TAZ Boundary (6,318)</label>
           </div>
         </div>
         <div id="featureTooltip" class="feature-tooltip hidden"></div>
@@ -238,8 +277,9 @@
         <textarea id="qcNote" maxlength="250" placeholder="Optional note"></textarea>
         <div class="hint">
           Public GitHub Pages version uses non-HERE static data and saves edits in this browser.
-          Manual edits may override CC count, 70-degree spacing, the 200-ft limit, and GSTDM crossings.
-          Red major nodes and nodes already used by another TAZ remain locked. Export your final files before using Reset Browser Data.
+          Manual edits may override CC count, red/major-node eligibility, 70-degree spacing, the 200-ft limit, and GSTDM crossings.
+          Red major nodes are blocked during preprocessing but allowed during manual editing with a Warning. Nodes already used by another TAZ remain locked.
+          Export your final files before using Reset Browser Data.
         </div>
       </aside>
     </main>
@@ -247,8 +287,8 @@
     <section id="instructionsPanel" class="instructions-panel hidden" aria-modal="true" role="dialog" aria-labelledby="instructionsTitle">
       <div class="instructions-card">
         <div class="instructions-head">
-          <h2 id="instructionsTitle">Instructions for Users</h2>
-          <button id="closeInstructionsBtn" title="Close instructions">x</button>
+          <h2 id="instructionsTitle">Help</h2>
+          <button id="closeInstructionsBtn" title="Close help">x</button>
         </div>
         <div class="instructions-body">
           <p>
@@ -263,11 +303,12 @@
             usually have 1 to 2 CCs, while larger TAZs may have 3. The automatic generator targets 1 to 3 CCs, at least
             70 degrees apart, no more than 200 ft outside the TAZ, and no GSTDM crossing before the target node. During
             manual review, these automatic rules may be overridden, including the CC count. A target node can still be
-            used by only one TAZ; if another TAZ already uses it, choose a nearby different node. Red major nodes remain locked. CCs should avoid connecting
+            used by only one TAZ; if another TAZ already uses it, choose a nearby different node. Red major nodes remain blocked during preprocessing,
+            but manual review may connect to one after acknowledging the Warning. CCs should avoid connecting
             to internal TAZ nodes: use a node within 200 ft of the TAZ boundary whenever one satisfies all hard rules.
             A farther internal node is labeled INTERIOR FALLBACK. CCs should also avoid connecting directly to freeways,
             major arterials, or intersections. The generation rules provide the default result, while the reviewer may make
-            a documented manual exception except for major-node use or cross-TAZ node sharing.
+            a documented manual exception, including major-node use. Cross-TAZ node sharing remains prohibited.
             MapLibre loads the OpenStreetMap basemap and local MVT vector tiles only for the visible map view.
           </p>
           <h3>Basic workflow</h3>
@@ -277,7 +318,8 @@
             <li>Select a TAZ from the list, double-click any TAZ polygon or number on the map, or use the TAZ search box to jump to a specific TAZ.</li>
             <li>Selecting a TAZ zooms to its boundary and highlights it; the other loaded layers remain available and reappear as you pan or zoom.</li>
             <li>Review the existing centroid connectors on the map.</li>
-            <li>To QC a coworker's export, click Load CC File. DBF and CSV can be selected directly; select SHP together with its same-name DBF. The uploaded CCs replace the default CCs in this browser until you click Use Default CC.</li>
+            <li>The active review dataset is GSTDM2025 Global TAZ / Global CC. Its browser-saved edits and uploaded CC baseline are separate from the previous New TAZ / New CC work. The 658 Global TAZs that also belong to the New TAZ dataset start as REVIEWED.</li>
+            <li>To QC a coworker's Global CC export, click Load CC File. DBF and CSV can be selected directly; select SHP together with its same-name DBF. The uploaded CCs replace the Global CC baseline in this browser until you click Use Default CC.</li>
             <li>Click a connector to inspect its current connected node.</li>
             <li>To modify a connector, select the connector and click a valid target node on the map. The edit is saved immediately.</li>
             <li>To add a new connector, click Add CC, then choose the target node. The new connector is generated and saved directly.</li>
@@ -288,15 +330,16 @@
             <li>Edit table values directly. Press Enter or leave a field to save it; press Escape to cancel. TAZ IDs and calculated CC counts remain read-only because they are tied to published geometry and live connector records.</li>
             <li>Use Undo Edit or Redo Edit if needed.</li>
             <li>Every TAZ with at least one CC starts as WAITING FOR QC. A TAZ with no CC is automatically FLAG. A TAZ changes to EDITED when uploaded CC data differs from the default CCs or when a user changes a connector, QC note, or other saved review data.</li>
-            <li>Mark the TAZ as REVIEWED when the connectors look correct. Right-click a TAZ in the list or on the map to set WAITING FOR QC, FLAG, EDITED, or REVIEWED directly. A zero-CC TAZ always remains FLAG.</li>
+            <li>Mark the TAZ as REVIEWED when the connectors look correct. Use Review + Next or Review + Previous to continue in either direction. Right-click a TAZ in the list or on the map to set WAITING FOR QC, FLAG, EDITED, or REVIEWED directly. A zero-CC TAZ always remains FLAG.</li>
             <li>Continue through the remaining TAZs.</li>
             <li>When review is complete, use Final CC Export, choose DBF or CSV, and choose whether to include the matching QCNOTES companion file with A, B, and QC_NOTES fields.</li>
-            <li>Use Export TAZ QC Status to download all TAZ statuses and notes as CSV or as a polygon Shapefile ZIP.</li>
-            <li>To discard all browser-saved edits and restore the published default CC and HERE_MISS inputs, click Reset Browser Data and confirm. This removes added or imported HERE_MISS changes, uploaded CC data, QC notes, reviewed status, and custom layer order.</li>
+            <li>Use Export TAZ QC Status to download all TAZ statuses and notes as DBF, CSV, or a polygon Shapefile ZIP. DBF is the default.</li>
+            <li>To discard the Global review work and restore the published Global CC and HERE_MISS inputs, click Reset Browser Data and confirm. This does not delete browser-saved work for the previous New TAZ / New CC dataset.</li>
           </ol>
           <p>
-            Please focus on whether each centroid connector is connected to a reasonable valid node. Major nodes
-            with MAJOR_LEVEL &lt;= 2 should not be used as snap nodes; only MAJOR_LEVEL 3, 4, or 5 are eligible.
+            Please focus on whether each centroid connector is connected to a reasonable valid node. Preprocessing
+            does not connect to red major nodes with MAJOR_LEVEL &lt;= 2. During manual editing, those red nodes may
+            be selected, but a persistent warning must be reviewed and closed manually.
           </p>
           <p>
             For the GitHub static web version, your edits are saved locally in your browser, so closing the webpage,

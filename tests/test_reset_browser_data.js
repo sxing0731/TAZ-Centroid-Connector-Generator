@@ -15,9 +15,13 @@ const factory = new Function(
   `${appSource.slice(start, end)}; return resetBrowserData;`
 );
 const storageKeys = {
+  edits: "tazGlobalQaqcEdits_20260724_input1",
+  importedCc: "tazGlobalQaqcImportedCc_20260724_input1",
+  layerOrder: "tazGlobalLayerOrder",
+};
+const legacyKeys = {
   edits: "tazQaqcEdits",
   importedCc: "tazQaqcImportedCc",
-  layerOrder: "tazLayerOrder",
 };
 
 function makeStorage() {
@@ -25,6 +29,8 @@ function makeStorage() {
     [storageKeys.edits, "saved edits"],
     [storageKeys.importedCc, "uploaded CC"],
     [storageKeys.layerOrder, "layer order"],
+    [legacyKeys.edits, "previous New CC edits"],
+    [legacyKeys.importedCc, "previous New CC upload"],
     ["otherAppSetting", "keep me"],
   ]);
   return {
@@ -40,7 +46,7 @@ function makeStorage() {
   let reloads = 0;
   const reset = factory(localStorage, () => false, { location: { reload: () => reloads++ } }, storageKeys);
   reset();
-  assert.equal(localStorage.values.size, 4);
+  assert.equal(localStorage.values.size, 6);
   assert.equal(reloads, 0);
 }
 
@@ -52,6 +58,8 @@ function makeStorage() {
   assert.equal(localStorage.values.has(storageKeys.edits), false);
   assert.equal(localStorage.values.has(storageKeys.importedCc), false);
   assert.equal(localStorage.values.has(storageKeys.layerOrder), false);
+  assert.equal(localStorage.values.get(legacyKeys.edits), "previous New CC edits");
+  assert.equal(localStorage.values.get(legacyKeys.importedCc), "previous New CC upload");
   assert.equal(localStorage.values.get("otherAppSetting"), "keep me");
   assert.equal(reloads, 1);
 }

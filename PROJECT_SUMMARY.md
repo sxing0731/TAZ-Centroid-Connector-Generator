@@ -114,7 +114,8 @@ The static application supports:
 - connector addition, deletion, endpoint reassignment, and QC notes;
 - DBF, CSV, SHP plus DBF, GeoJSON, and JSON connector-file loading;
 - replacement of the default connectors with an uploaded connector dataset;
-- published CSV defaults containing 1,465 CC pairs and 11 HERE_MISS pairs;
+- published DBF/CSV defaults containing 14,921 Global CC pairs (1,467 in the
+  New-TAZ core subset) and 28 HERE_MISS pairs;
 - browser-local HERE_MISS link editing between any two visible detailed nodes;
 - hover and selection highlighting for connector nodes, CCs, and HERE_MISS links;
 - a separate HERE_MISS map layer with right-click deletion and undo/redo;
@@ -126,14 +127,17 @@ The static application supports:
 - blank-map-click deselection for selected CC and HERE_MISS links;
 - categorized Navigate, Edit, Data, Export, and Help dropdown menus that keep
   the complete action set accessible on small screens;
-- manual rule overrides with visible warnings;
+- preprocessing exclusion of red major nodes, with manual red-node overrides
+  allowed only after a large persistent warning is shown;
+- Review + Previous and Review + Next navigation through the current review list;
 - browser-persistent layer order and visibility preferences;
 - browser-persistent right-panel width;
 - mobile pinch zoom;
-- final Cube DBF or CSV export;
-- optional QCNOTES companion-file export; and
-- TAZ QC status export as CSV or a polygon Shapefile ZIP; and
-- dedicated HERE_MISS DBF or CSV export.
+- final Cube DBF or CSV export, with DBF selected by default;
+- optional QCNOTES companion-file export, disabled by default;
+- TAZ QC status export as DBF, CSV, or a polygon Shapefile ZIP, with DBF
+  selected by default; and
+- dedicated HERE_MISS DBF or CSV export, with DBF selected by default.
 
 ## 4. Input Data
 
@@ -396,9 +400,10 @@ two directed export records:
 
 The `LANES`, `HERE_MISS`, and `FCLASS` fields are numeric in the DBF output.
 The current published defaults are sourced from
-`input/default/cube_taz_cc_public.csv` (2,930 directional records / 1,465 CC
-pairs) and `input/default/HERE_MISS_links.csv` (22 directional records / 11
-missing-link pairs). The generator validates and embeds these inputs so that
+`input/default/cube_taz_cc_public.csv` (29,842 directional records / 14,921
+Global CC pairs, including 1,467 pairs in the New-TAZ core subset) and
+`input/default/HERE_MISS_links.csv` (56 directional records / 28 missing-link
+pairs). The generator validates and embeds these inputs so that
 they are the initial CC and HERE_MISS layers rather than uploaded edits.
 HERE_MISS links are saved in browser local storage, can be selected from the map
 or table, deleted through the right-click menu, and restored with Undo. The
@@ -654,7 +659,7 @@ selection, HERE_MISS creation and two-direction export, right-click deletion,
 Undo/Redo, TAZ status display, right-panel resizing and persistence, and
 double-click zoom from the Missing Links table. The July 23 QA additionally
 verified grouped dropdown menus, blank-map-click deselection, FCLASS editing
-with Undo, and the published 1,465-CC / 11-missing-link defaults. No browser
+with Undo, and the published 14,921-Global-CC / 28-missing-link defaults. No browser
 console errors were observed during those checks.
 
 ## 16. Recommended Next Steps
