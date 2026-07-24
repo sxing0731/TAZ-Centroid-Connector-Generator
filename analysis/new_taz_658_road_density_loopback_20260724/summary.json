@@ -1,0 +1,360 @@
+{
+  "analysis_scope": {
+    "new_taz_count": 658,
+    "earliest_baseline": {
+      "git_commit": "5a2a8be",
+      "generated_from": "run_20260715_114631",
+      "connector_features": 2632,
+      "connector_pairs": 2606,
+      "duplicate_taz_node_features": 26,
+      "target_connector_count": 4,
+      "node_source": "run_20260712_155615"
+    },
+    "stabilized_baseline": {
+      "git_commit": "276731f",
+      "generated_from": "run_20260722_033549",
+      "connector_features": 1550,
+      "connector_pairs": 1550,
+      "duplicate_taz_node_features": 0,
+      "target_connector_count": 3,
+      "node_source": "run_20260722_033549"
+    },
+    "current_final": {
+      "source": "input/default/cube_taz_cc_public.csv",
+      "connector_pairs": 1467,
+      "taz_with_connector": 658
+    },
+    "test_run_needed": false,
+    "test_run_reason": "No rerun was needed because Git preserves the earliest published road-density JSON and the 2026-07-22 GPKG preserves candidates, selected connectors, and run configuration."
+  },
+  "comparisons": {
+    "earliest_to_final": {
+      "baseline_pairs": 2606,
+      "final_pairs": 1467,
+      "unchanged": 296,
+      "removed": 2310,
+      "added": 1171,
+      "net_change": -1139,
+      "exact_retention_pct": 11.3584036838066
+    },
+    "stabilized_to_final": {
+      "baseline_pairs": 1550,
+      "final_pairs": 1467,
+      "unchanged": 639,
+      "removed": 911,
+      "added": 828,
+      "net_change": -83,
+      "exact_retention_pct": 41.225806451612904
+    },
+    "first_human_to_final": {
+      "baseline_pairs": 1465,
+      "final_pairs": 1467,
+      "unchanged": 1417,
+      "removed": 48,
+      "added": 50,
+      "net_change": 2,
+      "exact_retention_pct": 96.7235494880546
+    }
+  },
+  "stage_history": [
+    {
+      "order": 1,
+      "stage": "Earliest road-density baseline",
+      "git_commit": "5a2a8be",
+      "generated_from": "run_20260715_114631",
+      "connector_features": 2632,
+      "connector_pairs": 2606,
+      "duplicate_taz_node_features": 26,
+      "taz_with_connector": 658,
+      "added_vs_prior": null,
+      "removed_vs_prior": null,
+      "retained_vs_prior": null
+    },
+    {
+      "order": 2,
+      "stage": "QC rules",
+      "git_commit": "5165a05",
+      "generated_from": "run_20260722_014023",
+      "connector_features": 1899,
+      "connector_pairs": 1769,
+      "duplicate_taz_node_features": 130,
+      "taz_with_connector": 633,
+      "added_vs_prior": 806,
+      "removed_vs_prior": 1643,
+      "retained_vs_prior": 963
+    },
+    {
+      "order": 3,
+      "stage": "No cross-TAZ node sharing",
+      "git_commit": "cae055d",
+      "generated_from": "run_20260722_020207",
+      "connector_features": 1855,
+      "connector_pairs": 1855,
+      "duplicate_taz_node_features": 0,
+      "taz_with_connector": 633,
+      "added_vs_prior": 193,
+      "removed_vs_prior": 107,
+      "retained_vs_prior": 1662
+    },
+    {
+      "order": 4,
+      "stage": "Improved connector rules",
+      "git_commit": "53f4e36",
+      "generated_from": "run_20260722_024527",
+      "connector_features": 1570,
+      "connector_pairs": 1570,
+      "duplicate_taz_node_features": 0,
+      "taz_with_connector": 633,
+      "added_vs_prior": 643,
+      "removed_vs_prior": 928,
+      "retained_vs_prior": 927
+    },
+    {
+      "order": 5,
+      "stage": "Stabilized road-density run",
+      "git_commit": "276731f",
+      "generated_from": "run_20260722_033549",
+      "connector_features": 1550,
+      "connector_pairs": 1550,
+      "duplicate_taz_node_features": 0,
+      "taz_with_connector": 633,
+      "added_vs_prior": 433,
+      "removed_vs_prior": 453,
+      "retained_vs_prior": 1117
+    },
+    {
+      "order": 6,
+      "stage": "Published algorithm snapshot",
+      "git_commit": "428f28b",
+      "generated_from": "run_20260722_033549",
+      "connector_features": 1550,
+      "connector_pairs": 1550,
+      "duplicate_taz_node_features": 0,
+      "taz_with_connector": 633,
+      "added_vs_prior": 0,
+      "removed_vs_prior": 0,
+      "retained_vs_prior": 1550
+    },
+    {
+      "order": 7,
+      "stage": "First human-edited publish",
+      "git_commit": "7a8f077",
+      "generated_from": "run_20260722_033549",
+      "connector_features": 1465,
+      "connector_pairs": 1465,
+      "duplicate_taz_node_features": 0,
+      "taz_with_connector": 658,
+      "added_vs_prior": 801,
+      "removed_vs_prior": 886,
+      "retained_vs_prior": 664
+    },
+    {
+      "order": 8,
+      "stage": "Current uploaded final",
+      "git_commit": "working tree",
+      "generated_from": "input/default/cube_taz_cc_public.csv",
+      "connector_features": 1467,
+      "connector_pairs": 1467,
+      "duplicate_taz_node_features": 0,
+      "taz_with_connector": 658,
+      "added_vs_prior": 50,
+      "removed_vs_prior": 48,
+      "retained_vs_prior": 1417
+    }
+  ],
+  "count_distributions": {
+    "earliest": {
+      "1": 3,
+      "2": 2,
+      "3": 13,
+      "4": 640
+    },
+    "stabilized": {
+      "0": 25,
+      "1": 72,
+      "2": 205,
+      "3": 356
+    },
+    "final": {
+      "1": 139,
+      "2": 257,
+      "3": 235,
+      "4": 26,
+      "5": 1
+    }
+  },
+  "stabilized_to_final_patterns": {
+    "taz_edit_patterns": {
+      "net increase": 81,
+      "net reduction": 156,
+      "no pair change": 123,
+      "same-count replacement": 298
+    },
+    "taz_pair_sets_unchanged": 123,
+    "taz_pair_sets_changed": 535,
+    "previously_unserved_taz_now_served": 25,
+    "final_additions_in_20260722_candidate_universe": 97,
+    "final_additions_not_in_20260722_candidate_universe": 731,
+    "candidate_hit_pct": 11.714975845410628,
+    "matched_replacements": 737,
+    "replacement_endpoint_shift_ft": {
+      "n": 737,
+      "median": 966.7215214326902,
+      "p90": 3311.9150172606987,
+      "mean": 1502.00841053856
+    },
+    "replacement_distance_buckets": {
+      "<=200 ft": 84,
+      "201-500 ft": 123,
+      "501-1000 ft": 171,
+      ">1000 ft": 359
+    },
+    "replacement_major_level_change": {
+      "less major": 37,
+      "more major": 4,
+      "same": 696
+    }
+  },
+  "baseline_quality": {
+    "earliest": {
+      "retained": {
+        "count": 302,
+        "density": {
+          "n": 302,
+          "median": 0.00682269565073504,
+          "p90": 0.015159206324936099,
+          "mean": 0.007895412671398115
+        },
+        "density_rank": {
+          "n": 302,
+          "median": 3.0,
+          "p90": 6.0,
+          "mean": 3.1821192052980134
+        },
+        "outside_len_ft": {
+          "n": 302,
+          "median": 0.0,
+          "p90": 21.706097698523163,
+          "mean": 433.43406579049037
+        },
+        "line_node_dist_ft": {
+          "n": 302,
+          "median": 83.62929728646037,
+          "p90": 1509.947076722471,
+          "mean": 964.6239175921526
+        },
+        "major_level": {
+          "3": 59,
+          "4": 230,
+          "5": 13
+        }
+      },
+      "removed": {
+        "count": 2330,
+        "density": {
+          "n": 2330,
+          "median": 0.007047666515742807,
+          "p90": 0.015595267811083504,
+          "mean": 0.008210705011709627
+        },
+        "density_rank": {
+          "n": 2330,
+          "median": 4.0,
+          "p90": 7.0,
+          "mean": 3.819742489270386
+        },
+        "outside_len_ft": {
+          "n": 2330,
+          "median": 13.427641729602136,
+          "p90": 4704.393712174482,
+          "mean": 1683.2444929361807
+        },
+        "line_node_dist_ft": {
+          "n": 2330,
+          "median": 280.6011242511902,
+          "p90": 5256.268116604029,
+          "mean": 2292.5923234181128
+        },
+        "major_level": {
+          "3": 683,
+          "4": 1552,
+          "5": 95
+        }
+      }
+    },
+    "stabilized": {
+      "retained": {
+        "count": 639,
+        "density": {
+          "n": 639,
+          "median": 0.007369994981356487,
+          "p90": 0.016644200026056842,
+          "mean": 0.008685036182455162
+        },
+        "density_rank": {
+          "n": 639,
+          "median": 3.0,
+          "p90": 7.0,
+          "mean": 3.2331768388106417
+        },
+        "outside_len_ft": {
+          "n": 639,
+          "median": 0.0,
+          "p90": 16.97123126933239,
+          "mean": 5.8089269122236455
+        },
+        "line_node_dist_ft": {
+          "n": 639,
+          "median": 296.7014417169764,
+          "p90": 2919.668063754543,
+          "mean": 1086.2450527151138
+        },
+        "major_level": {
+          "3": 149,
+          "4": 466,
+          "5": 24
+        }
+      },
+      "removed": {
+        "count": 911,
+        "density": {
+          "n": 911,
+          "median": 0.008281016846965052,
+          "p90": 0.017376385076974647,
+          "mean": 0.009382550563050276
+        },
+        "density_rank": {
+          "n": 911,
+          "median": 3.0,
+          "p90": 7.0,
+          "mean": 3.2711306256860593
+        },
+        "outside_len_ft": {
+          "n": 911,
+          "median": 0.0,
+          "p90": 15.549658298699264,
+          "mean": 5.862896435258208
+        },
+        "line_node_dist_ft": {
+          "n": 911,
+          "median": 169.7100671482321,
+          "p90": 2022.388224119,
+          "mean": 718.5203573792559
+        },
+        "major_level": {
+          "3": 282,
+          "4": 607,
+          "5": 22
+        }
+      }
+    }
+  },
+  "source_validation": {
+    "current_input_matches_core": true,
+    "current_directed_rows": 29842,
+    "current_unique_pairs_for_658_taz": 1467,
+    "earliest_unique_pairs": 2606,
+    "stabilized_csv_rows": 1550,
+    "stabilized_unique_pairs": 1550
+  }
+}

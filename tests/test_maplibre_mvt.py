@@ -17,7 +17,7 @@ def test_generated_mvt_bundle_matches_manifest_and_decodes() -> None:
     tiles = sorted(MVT_ROOT.glob("*/*/*.pbf"))
 
     assert manifest["format"] == "mvt"
-    assert manifest["generalizationVersion"] == 2
+    assert manifest["generalizationVersion"] == 3
     assert manifest["generalization"]["method"] == "topology-preserving-simplify"
     assert manifest["minzoom"] == 6
     assert manifest["maxzoom"] == 12
@@ -28,6 +28,13 @@ def test_generated_mvt_bundle_matches_manifest_and_decodes() -> None:
     for tile in (MVT_ROOT / "8").glob("*/*.pbf"):
         low_zoom_layers.update(mapbox_vector_tile.decode(tile.read_bytes()))
     assert {"taz", "centroids", "connectors", "gstdm", "node_clusters"} <= low_zoom_layers
+
+    candidate_layers: set[str] = set()
+    for tile in (MVT_ROOT / "11").glob("*/*.pbf"):
+        candidate_layers.update(mapbox_vector_tile.decode(tile.read_bytes()))
+        if "candidate_nodes" in candidate_layers:
+            break
+    assert "candidate_nodes" in candidate_layers
 
     detail_layers: set[str] = set()
     for tile in (MVT_ROOT / "12").glob("*/*.pbf"):

@@ -152,10 +152,18 @@ link detail and is overzoomed for closer views. Nodes are hidden below zoom 10,
 shown as small count-labeled clusters from zoom 10 to 12, and shown at their
 actual locations from zoom 12 onward. Clicking a TAZ in the left list
 zooms directly to that TAZ without a per-TAZ JSON request.
+The published full-model layers are
+`input/GSTDM2025/GSTDM_2025/GSTDM_2025_LINK_0721.shp` and
+`input/GSTDM2025/GSTDM_2025/GSTDM_2025_NODE_0721.shp`. The link Shapefile
+replaces the earlier Georgia-only GSTDM display network. Nodes referenced only
+by `NONGA=1` links are outside Georgia; all 35,147 are green and eligible as CC
+targets regardless of functional class. Reverse-direction link records are
+collapsed to one undirected display link.
 The published default review inputs are:
 
-- `input/default/cube_taz_cc_public.csv` — 1,465 default CC pairs; and
-- `input/default/HERE_MISS_links.csv` — 11 default HERE_MISS pairs.
+- `input/default/cube_taz_cc_public.csv` — 14,921 Global CC pairs; the
+  New-TAZ core layer uses its matching 1,467-pair subset; and
+- `input/default/HERE_MISS_links.csv` — 28 default HERE_MISS pairs.
 
 The generator validates both directed-record CSVs, rebuilds connector geometry
 from the published TAZ centroids and node layer, and embeds HERE_MISS geometry
@@ -167,7 +175,8 @@ TAZ Status tables support inline editing of their business attributes; TAZ IDs
 and calculated CC counts remain read-only. Clicking blank map space clears the
 current CC or missing-link selection. Top actions are grouped into responsive
 Navigate, Edit, Data, Export, and Help dropdown menus.
-The browser Final CC Export supports DBF or CSV. The optional QCNOTES companion
+The browser Final CC Export supports DBF or CSV, with DBF selected by default.
+The optional QCNOTES companion is disabled by default and
 contains matching `A`, `B`, and `QC_NOTES` fields for the directed connector
 records; disabling the toggle exports only the main `A/B/FCLASS` file.
 MapLibre also manages the OpenStreetMap raster basemap and optional Esri satellite
@@ -179,7 +188,50 @@ TAZ review status uses four values: `WAITING FOR QC` by default, `FLAG` when a
 TAZ has no CC, `EDITED` when uploaded CCs differ or browser-saved work changes
 the TAZ, and `REVIEWED` after approval.
 Right-click a TAZ to set any status manually. Export TAZ QC Status writes
-`TAZ_ID`, `QC_STATUS`, and `QC_NOTES` as CSV or a polygon Shapefile ZIP.
+`TAZ_ID`, `QC_STATUS`, and `QC_NOTES` as DBF, CSV, or a polygon Shapefile ZIP,
+with DBF selected by default.
+
+### GSTDM2025 Global review dataset
+
+The published review page now loads `docs/data/global-review.json` as its active
+Global TAZ / Global CC dataset. It is generated from the two shapefiles below
+`input/GSTDM2025` by:
+
+```powershell
+.\.venv\Scripts\python.exe generate_global_review_data.py `
+  --node-gpkg output\run_20260722_033549\taz_centroid_connectors.gpkg
+```
+
+The Global review data uses baseline-versioned browser keys
+(`tazGlobalQaqcEdits_20260724_input1` and
+`tazGlobalQaqcImportedCc_20260724_input1`). The
+prior Global baseline keys are retained as a browser backup and are no longer
+applied. The previous New TAZ / New CC data and its
+`tazQaqcEdits` / `tazQaqcImportedCc` values are retained as hidden-by-default
+comparison layers. HERE_MISS remains visible by default. Review + Next and
+Review + Previous save the current Global TAZ status and move in the requested
+direction through the current filtered list. The
+658 Global TAZs whose IDs are also present in the New TAZ dataset default to
+`REVIEWED`; later Global edits or explicit status choices take precedence.
+The browser layer uses a topology-preserving 100-ft TAZ simplification.
+`global-review.json` is now a roughly 0.65-MiB index; Global geometries are
+published in lazy chunks capped at 1,000 TAZs and targeted at roughly 2 MiB
+each. The Navigate menu exposes these chunks as Data blocks. Only the selected
+block stays in the interactive TAZ list, status summary, centroid layer, TAZ
+layer, and CC layer; selecting another block releases the previous block.
+Jumping to a valid TAZ in another block switches automatically. Full geometry
+is loaded temporarily only for a complete CC or TAZ Shapefile export, then the
+selected block is restored. Global TAZ polygons and Global CC lines
+are projected and sent to MapLibre only for the current buffered viewport;
+panning refreshes that subset on `moveend` instead of keeping all 6,318
+polygons and 14,921 connector lines in the live WebGL GeoJSON sources. The
+expanded EDIT actions remain visible in the top toolbar; INPUT and OUTPUT group
+file loading and exports, Help opens directly, and a lower-left map overlay
+shows live counts for all four TAZ review statuses.
+
+Node rendering is staged for mobile performance: zooms 8-10 use lightweight
+clusters, zoom 11 shows the real eligible and outside-Georgia nodes as green
+selectable points, and zoom 12+ uses the complete node layer.
 
 ## Module Layout
 

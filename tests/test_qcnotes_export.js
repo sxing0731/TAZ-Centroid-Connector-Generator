@@ -75,7 +75,19 @@ async function main() {
   );
   const exportSource = appSource.slice(appSource.indexOf("async function exportFinalCc"), appSource.indexOf("function makeCsv"));
   assert.doesNotMatch(exportSource, /findTazAngleConflicts\(sourceRows\)/, "manual angle overrides should not block final export");
-  assert.match(exportSource, /findCrossTazNodeConflicts\(sourceRows\)/, "cross-TAZ shared nodes should still block final export");
+  assert.match(exportSource, /findCrossTazNodeConflicts\(sourceRows\)/, "cross-TAZ shared nodes should still be audited");
+  assert.doesNotMatch(exportSource, /Final CC export blocked|before export\.[\s\S]*?return;/, "cross-TAZ shared nodes should not block final export");
+  assert.match(exportSource, /Exported with \$\{conflicts\.length\} cross-TAZ shared node/, "export should warn when shared nodes remain");
+  const htmlSource = fs.readFileSync(path.resolve(__dirname, "..", "docs", "index.html"), "utf8");
+  assert.match(htmlSource, /name="exportFormat" value="dbf" checked/, "Final CC export should default to DBF");
+  assert.match(htmlSource, /id="includeQcNotes" type="checkbox"\s*\/>/, "QCNOTES companion should be off by default");
+  assert.doesNotMatch(htmlSource, /id="includeQcNotes"[^>]*checked/, "QCNOTES companion should not be enabled by default");
+  assert.match(htmlSource, /name="missingLinksExportFormat" value="dbf" checked/, "HERE_MISS export should default to DBF");
+  assert.match(htmlSource, /name="tazStatusExportFormat" value="dbf" checked/, "TAZ status export should default to DBF");
+  assert.match(htmlSource, /value="cross-taz-shared-node">Shared Nodes</, "data list should expose a dedicated shared-node review filter");
+  assert.match(htmlSource, /value="auto-fixed-shared">Auto-fixed Shared</, "data list should expose the automatically repaired TAZ review filter");
+  assert.match(appSource, /function refreshCrossTazSharedNodeReview\(\)/, "shared-node review filter should build its data list");
+  assert.match(appSource, /state\.crossTazConflictTazIds\.has\(String\(item\.id\)\)/, "shared-node filter should select affected TAZs");
   console.log("QCNOTES DBF and CSV export tests passed");
 }
 

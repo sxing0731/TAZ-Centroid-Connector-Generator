@@ -22,7 +22,7 @@ const factory = new Function(
   "querySpatialGrid",
   "linkBoundsIntersect",
   "MIN_CC_ANGLE",
-  `${appSource.slice(start, end)}; return { segmentOutsideLength, connectorCrossesGstdm, connectorTargetValidation };`
+  `${appSource.slice(start, end)}; return { segmentOutsideLength, connectorCrossesGstdm, connectorTargetValidation, manualOverrideWarnings };`
 );
 const rules = factory(state, (grid) => grid, () => true, 70);
 
@@ -30,9 +30,10 @@ assert.ok(Math.abs(rules.segmentOutsideLength([500, 500], [1150, 500], taz) - 15
 assert.ok(Math.abs(rules.segmentOutsideLength([500, 500], [1250, 500], taz) - 250) < 1e-6);
 assert.equal(rules.connectorTargetValidation({ eligible: true, x: 1150, y: 500 }), "");
 assert.equal(rules.connectorTargetValidation({ eligible: true, x: 1250, y: 500 }), "");
+assert.equal(rules.connectorTargetValidation({ id: "66", eligible: false, majorLevel: 2, x: 900, y: 500 }), "");
 assert.match(
-  rules.connectorTargetValidation({ eligible: false, x: 900, y: 500 }),
-  /non-major node/
+  rules.manualOverrideWarnings({ id: "66", eligible: false, majorLevel: 2, x: 900, y: 500 }).join(" "),
+  /red major node 66/
 );
 state.globalConnectors = [{ tazId: "2", nodeId: "77" }];
 state.payload.tazId = "1";

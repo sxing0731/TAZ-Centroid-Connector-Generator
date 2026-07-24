@@ -27,7 +27,8 @@ assert.ok(core.counts.nodes > 300000);
 assert.ok(core.counts.gstdmLines > 0);
 assert.equal(core.tileManifest, "data/tiles/manifest.json");
 assert.equal(core.vectorTiles.format, "mvt");
-assert.equal(core.vectorTiles.generalizationVersion, 2);
+assert.equal(core.vectorTiles.generalizationVersion, 3);
+assert.ok(core.vectorTiles.layers.includes("candidate_nodes"));
 assert.equal(core.vectorTiles.generalization.method, "topology-preserving-simplify");
 assert.equal(core.vectorTiles.tiles, "data/mvt/{z}/{x}/{y}.pbf");
 assert.equal(mvtManifest.maxzoom, 12);
@@ -58,10 +59,12 @@ assert.ok(core.nodeSource);
 assert.deepEqual(core.defaultInputs, {
   cc: "input/default/cube_taz_cc_public.csv",
   missingLinks: "input/default/HERE_MISS_links.csv",
-  ccDirectionalRecords: 2930,
-  ccPairs: 1465,
-  missingDirectionalRecords: 22,
-  missingPairs: 11,
+  ccSourceDirectionalRecords: 29842,
+  ccDirectionalRecords: 2934,
+  ccPairs: 1467,
+  ccSkippedOutsideCore: 26908,
+  missingDirectionalRecords: 56,
+  missingPairs: 28,
 });
 
 function simpleCsvRows(filePath) {
@@ -84,7 +87,7 @@ const pairKey = (a, b) => [String(a), String(b)]
 const expectedMissingPairs = new Set(simpleCsvRows(defaultMissingPath).map((row) => pairKey(row.A, row.B)));
 const actualMissingPairs = new Set(core.defaultMissingLinks.map((item) => item.pairKey));
 assert.deepEqual([...actualMissingPairs].sort(), [...expectedMissingPairs].sort());
-assert.equal(core.defaultMissingLinks.length, 11);
+assert.equal(core.defaultMissingLinks.length, 28);
 assert.ok(core.defaultMissingLinks.every((item) => nodeIndex[item.a] && nodeIndex[item.b]));
 assert.ok(core.defaultMissingLinks.every((item) => item.aCoord.every(Number.isFinite) && item.bCoord.every(Number.isFinite)));
 assert.ok(core.defaultMissingLinks.every((item) => item.records === 2));
@@ -112,7 +115,11 @@ assert.equal(tiledNodeCount, core.counts.nodes);
 assert.equal(tiledLineIds.size, core.counts.gstdmLines);
 assert.equal(overview.coarseClusters.reduce((sum, item) => sum + item.count, 0), core.counts.nodes);
 assert.equal(overview.mediumClusters.reduce((sum, item) => sum + item.count, 0), core.counts.nodes);
-assert.ok(overview.gstdmLines.length < core.counts.gstdmLines / 10);
+assert.ok(overview.gstdmLines.length < core.counts.gstdmLines);
+assert.ok(
+  fs.statSync(path.join(dataRoot, "tiles", "overview.json")).size < 5 * 1024 * 1024,
+  "the global-network overview should remain below 5 MiB"
+);
 
 const connectorsByTaz = new Map();
 for (const connector of core.connectors) {

@@ -1,0 +1,9 @@
+order,stage,git_commit,generated_from,connector_features,connector_pairs,duplicate_taz_node_features,taz_with_connector,added_vs_prior,removed_vs_prior,retained_vs_prior
+1,Earliest road-density baseline,5a2a8be,run_20260715_114631,2632,2606,26,658,,,
+2,QC rules,5165a05,run_20260722_014023,1899,1769,130,633,806.0,1643.0,963.0
+3,No cross-TAZ node sharing,cae055d,run_20260722_020207,1855,1855,0,633,193.0,107.0,1662.0
+4,Improved connector rules,53f4e36,run_20260722_024527,1570,1570,0,633,643.0,928.0,927.0
+5,Stabilized road-density run,276731f,run_20260722_033549,1550,1550,0,633,433.0,453.0,1117.0
+6,Published algorithm snapshot,428f28b,run_20260722_033549,1550,1550,0,633,0.0,0.0,1550.0
+7,First human-edited publish,7a8f077,run_20260722_033549,1465,1465,0,658,801.0,886.0,664.0
+8,Current uploaded final,working tree,input/default/cube_taz_cc_public.csv,1467,1467,0,658,50.0,48.0,1417.0

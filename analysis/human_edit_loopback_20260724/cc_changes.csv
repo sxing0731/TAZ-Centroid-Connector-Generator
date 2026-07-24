@@ -1,0 +1,83 @@
+taz_id,node_id,change_type,replacement_id,connector_length_ft,bearing_deg,outside_taz_length_ft,target_outside_taz_ft,target_boundary_distance_ft,node_major_level,node_eligible,node_outside_ga,unique_neighbor_degree,functional_classes,ramp_share,top_street_names,was_shared_node_auto_repair_choice
+24,545642,replacement_old,R01,8289.385,57.536,67.114,28.544,28.544,3.0,True,False,2,3,0.0,CAMP CREEK PKWY SW,False
+45,562549,replacement_old,R02,5446.082,339.139,0.0,0.0,67.725,3.0,True,False,2,3,0.0,CAMP CREEK PKWY SW,False
+51,63587,replacement_old,R03,4430.947,100.131,0.0,0.0,4.108,3.0,True,False,2,3,0.0,MAIN ST,False
+245,482606,replacement_old,R04,3289.098,6.348,0.0,0.0,75.619,4.0,True,False,2,4,0.0,MCGINNIS FERRY RD,False
+263,599334,replacement_old,R05,2610.092,118.86,0.0,0.0,6.343,4.0,True,False,2,4,0.0,HAYNES BRIDGE RD,False
+263,785101,replacement_old,R06,4753.295,227.575,0.0,0.0,259.364,4.0,True,False,2,4,0.0,MANSELL RD,False
+287,566339,replacement_old,R07,3846.598,122.38,0.0,0.0,37.09,3.0,True,False,2,3,0.0,MARIETTA HWY,False
+288,566338,replacement_old,R08,2030.83,355.417,0.0,0.0,20.252,3.0,True,False,2,3,0.0,MARIETTA HWY,False
+295,80083,replacement_old,R09,2822.945,330.669,0.0,0.0,6.49,4.0,True,False,2,4,0.0,MT VERNON HWY NE,False
+406,986647,replacement_old,R10,3985.635,251.572,5.282,5.198,5.198,4.0,True,False,2,4,0.0,SENOIA RD,False
+407,926983,replacement_old,R11,4181.509,95.771,0.0,0.0,70.65,4.0,True,False,2,4,0.0,SENOIA RD,False
+434,424661,replacement_old,R12,8633.533,338.885,0.0,0.0,2.131,4.0,True,False,2,4,0.0,SOUTH FULTON PKWY,False
+439,1151002,replacement_old,R13,4393.687,256.831,0.0,0.0,20.041,4.0,True,False,2,4,0.0,JOHNSON FERRY RD,False
+495,1376763,replacement_old,R14,1678.404,180.748,0.0,0.0,52.54,4.0,True,False,2,4,0.0,AUSTELL RD SW,False
+496,1407609,replacement_old,R15,2176.808,316.938,6.001,5.934,5.934,4.0,True,False,2,4,0.0,AUSTELL RD SW,False
+569,810392,replacement_old,R16,5915.796,0.776,3.195,3.024,3.024,3.0,True,False,2,3,0.0,DALLAS HWY SW,False
+616,83144,replacement_old,R17,3204.516,235.219,0.0,0.0,54.662,4.0,True,False,2,4,0.0,BELLS FERRY RD NW,False
+648,810311,replacement_old,R18,2586.685,229.218,0.0,0.0,75.359,3.0,True,False,2,3,0.0,N COBB PKWY NW,False
+649,810331,replacement_old,R19,2821.769,61.867,0.0,0.0,4.517,3.0,True,False,2,3,0.0,N COBB PKWY NW,False
+659,20068,replacement_old,R20,529.67,329.032,0.0,0.0,784.74,4.0,True,False,2,4,0.0,AKERS MILL RD SE,False
+660,758345,replacement_old,R21,1904.63,207.087,0.0,0.0,907.443,4.0,True,False,2,4,0.0,CUMBERLAND BLVD SE,False
+662,758976,replacement_old,R22,2947.59,230.222,0.0,0.0,35.183,4.0,True,False,2,4,0.0,POWERS FERRY RD SE,False
+662,759007,replacement_old,R23,4377.811,318.234,0.0,0.0,47.331,4.0,True,False,2,4,0.0,TERRELL MILL RD SE,False
+670,76562,replacement_old,R24,4123.313,62.858,0.0,0.0,19.278,4.0,True,False,2,4,0.0,JOHNSON FERRY RD NE,False
+709,258911,replacement_old,R25,5278.074,13.617,0.0,0.0,66.3,3.0,True,False,2,3,0.0,CHARLES HARDY PKWY,False
+712,794371,replacement_old,R26,9422.57,10.309,0.0,0.0,2262.772,3.0,True,False,2,3,0.0,BILL CARRUTH PKWY,False
+749,52830,deletion,,2094.768,183.055,11.171,10.273,10.273,2.0,False,False,3,2|5,0.0,nan|THORNTON RD,False
+751,52705,replacement_old,R27,2748.571,312.506,6.492,4.666,4.666,4.0,True,False,2,4,0.0,SKYVIEW DR,False
+751,52746,deletion,,1699.529,19.335,12.018,11.685,11.685,4.0,True,False,2,4,0.0,SKYVIEW DR,False
+753,913536,replacement_old,R28,5270.055,79.196,0.0,0.0,1339.427,3.0,True,False,2,3,0.0,THORNTON RD,False
+754,913577,replacement_old,R29,5655.112,49.482,0.0,0.0,2021.418,3.0,True,False,2,3,0.0,THORNTON RD,False
+755,47198,replacement_old,R30,7148.837,278.765,0.0,0.0,12.243,3.0,True,False,2,3,0.0,FAIRBURN RD,False
+774,222490,deletion,,7910.12,61.53,4479.771,4161.807,4161.807,2.0,False,False,2,2,0.0,GA-16,False
+905,236964,replacement_old,R31,6673.549,213.628,0.0,0.0,5.046,4.0,True,False,4,4,0.0,DOGWOOD TRL|GA-74|JOEL COWAN PKWY,False
+928,20460,deletion,,2424.786,301.147,739.382,670.263,670.263,2.0,False,False,2,2,0.0,TARA BLVD,False
+932,40926,deletion,,1891.469,94.773,0.0,0.0,737.0,2.0,False,False,2,2,0.0,TARA BLVD,False
+944,42027,deletion,,2209.803,118.821,0.0,0.0,75.628,2.0,False,False,2,2,0.0,TARA BLVD,False
+947,984556,replacement_old,R32,2803.012,315.247,0.0,0.0,68.729,3.0,True,False,2,3,0.0,GA-85,False
+972,94632,replacement_old,R33,1972.804,111.619,0.0,0.0,49.696,3.0,True,False,2,3,0.0,GA-138,False
+989,43392,deletion,,2712.469,317.107,4.335,3.613,3.613,5.0,True,False,2,5,0.0,PHILLIPS DR,False
+989,43437,replacement_old,R34,3671.041,342.359,0.0,0.0,122.122,3.0,True,False,2,3,0.0,FOREST PKWY,False
+992,43789,replacement_old,R35,5402.366,14.875,0.0,0.0,34.876,4.0,True,False,2,4,0.0,GA-42,False
+24,1696744,replacement_new,R01,7898.602,58.301,0.0,0.0,42.418,3.0,True,False,4,3|5,0.0,CAMP CREEK PKWY SW|WESTLAKE PKWY SW|nan,False
+45,562548,replacement_new,R02,6002.785,332.609,0.0,0.0,64.103,3.0,True,False,4,3|4,0.0,nan|CAMP CREEK PKWY SW,False
+51,161618,replacement_new,R03,1096.929,149.127,0.0,0.0,1.16,3.0,True,False,2,3,0.0,CAMP CREEK PKWY,False
+245,137095,replacement_new,R04,4653.705,340.625,0.0,0.0,84.832,4.0,True,False,4,4,0.0,MCGINNIS FERRY RD|OLD ATLANTA RD,False
+263,130021,replacement_new,R06,5298.022,233.567,0.0,0.0,740.335,4.0,True,False,3,4,0.0,NORTH POINT PKWY|MANSELL RD,False
+263,564299,replacement_new,R05,1898.066,69.362,0.0,0.0,6.504,4.0,True,False,3,4,0.0,HAYNES BRIDGE RD|NORTH POINT PKWY,False
+272,91849,addition,,2231.775,39.731,0.0,0.0,10.398,4.0,True,False,2,4,0.0,FREEMANVILLE RD|REDD RD,False
+287,1728082,replacement_new,R07,3567.918,124.433,0.0,0.0,165.083,4.0,True,False,2,4,0.0,WILLEO RD,False
+288,89551,replacement_new,R08,1957.631,344.012,0.0,0.0,39.45,3.0,True,False,3,3|4,0.0,WILLEO RD|MARIETTA HWY,False
+295,80088,replacement_new,R09,2823.716,338.216,0.0,0.0,4.141,4.0,True,False,3,4,0.0,MT VERNON HWY NE|CRESTLINE PKWY,False
+354,65523,addition,,2222.869,122.069,0.0,0.0,283.995,4.0,True,False,2,4,0.0,METROPOLITAN PKWY SW,False
+406,36193,replacement_new,R10,4222.084,243.138,0.0,0.0,3.865,4.0,True,False,3,4,0.0,nan|SENOIA RD,False
+407,36192,replacement_new,R11,4303.133,104.173,0.0,0.0,62.828,4.0,True,False,3,4,0.0,nan|GA-74|SENOIA RD,False
+434,424676,replacement_new,R12,9270.677,328.447,0.0,0.0,8.141,4.0,True,False,2,4,0.0,SOUTH FULTON PKWY,False
+439,88187,replacement_new,R13,4448.304,255.794,0.0,0.0,29.67,4.0,True,False,3,4,0.0,LASSITER RD|JOHNSON FERRY RD,False
+495,61031,replacement_new,R14,1827.71,184.255,0.0,0.0,52.164,4.0,True,False,3,4,0.0,nan|AUSTELL RD SW,False
+496,61032,replacement_new,R15,2156.601,312.106,5.57,5.558,5.558,4.0,True,False,3,4,0.0,nan|AUSTELL RD SW,False
+569,49704,replacement_new,R16,6153.467,6.344,9.629,8.776,8.776,3.0,True,False,3,3|4,0.0,nan|DALLAS HWY SW,False
+616,85301,replacement_new,R17,2969.204,224.003,0.0,0.0,7.187,4.0,True,False,3,4|5,0.0,RIDGEWOOD CREEK DR NW|BELLS FERRY RD NW,False
+648,51692,replacement_new,R18,2472.064,235.369,0.0,0.0,74.454,3.0,True,False,5,3|4|5,0.0,nan|N COBB PKWY NW|COBB PKWY,False
+649,51688,replacement_new,R19,3043.695,83.208,0.0,0.0,4.969,3.0,True,False,5,3|4,0.0,OLD ACWORTH DALLAS HWY NW|N COBB PKWY NW|COBB PKWY,False
+659,74090,replacement_new,R20,1745.142,239.961,0.0,0.0,53.892,3.0,True,False,4,3|4,0.0,AKERS MILL RD SE|COBB PKWY SE,False
+659,469074,addition,,2477.426,151.755,0.0,0.0,411.622,4.0,True,False,3,4|5,0.0,nan|CUMBERLAND BLVD SE,False
+660,758343,replacement_new,R21,1873.165,261.557,0.0,0.0,938.028,4.0,True,False,3,4,0.0,AKERS MILL RD SE|CUMBERLAND BLVD SE,False
+662,758978,replacement_new,R22,3044.517,237.665,0.0,0.0,35.38,4.0,True,False,4,4|5,0.0,nan|POWERS FERRY RD SE,False
+662,759008,replacement_new,R23,4794.86,328.075,10.152,6.789,6.789,4.0,True,False,3,4|5,0.0,nan|TERRELL MILL RD SE,False
+670,76560,replacement_new,R24,3881.052,74.066,0.0,0.0,23.484,4.0,True,False,3,4,0.0,PAPER MILL RD SE|JOHNSON FERRY RD NE,False
+709,472566,replacement_new,R25,4970.306,7.36,0.0,0.0,72.615,3.0,True,False,4,3|5,0.0,nan|CHARLES HARDY PKWY,False
+712,794338,replacement_new,R26,7888.351,4.107,0.0,0.0,2001.298,3.0,True,False,3,3|4,0.0,ANGHAM RD|BILL CARRUTH PKWY,False
+751,52718,replacement_new,R27,2104.541,336.369,0.0,0.0,12.488,4.0,True,False,2,4,0.0,SKYVIEW DR,False
+753,53046,replacement_new,R28,6165.116,94.918,0.0,0.0,5.567,3.0,True,False,4,3|4|5,0.0,FACTORY SHOALS RD|THORNTON RD|nan,False
+754,53053,replacement_new,R29,5883.852,46.563,0.0,0.0,1846.39,3.0,True,False,4,3|4|5,0.0,nan|THORNTON RD,False
+755,1688131,replacement_new,R30,8688.772,288.128,0.0,0.0,119.733,4.0,True,False,3,4,0.0,LEE RD|nan,False
+905,237011,replacement_new,R31,5642.579,182.886,3.562,3.561,3.561,4.0,True,False,2,4,0.0,DOGWOOD TRL,False
+947,40052,replacement_new,R32,2565.21,304.215,0.0,0.0,62.376,3.0,True,False,5,3|4|5,0.0,LEES MILL RD|GA-85|nan,False
+952,788309,addition,,1929.341,99.073,0.0,0.0,25.729,4.0,True,False,3,4,0.0,CONLEY RD,False
+972,94630,replacement_new,R33,1475.99,139.599,0.0,0.0,46.73,3.0,True,False,3,3|5,0.0,nan|GA-138,False
+989,43434,replacement_new,R34,3987.593,337.088,0.0,0.0,4.088,3.0,True,False,4,3|5,0.0,PHILLIPS DR|FOREST PKWY,False
+992,95876,addition,,4700.012,90.176,0.0,0.0,43.102,4.0,True,False,3,4,0.0,GA-42|ANVILBLOCK RD,False
+992,557344,replacement_new,R35,5904.287,8.188,0.0,0.0,41.236,4.0,True,False,3,4,0.0,nan|GA-42|MORELAND AVE,False

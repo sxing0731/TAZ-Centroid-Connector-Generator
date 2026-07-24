@@ -1,0 +1,783 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "From Road Density to Final Connectors: 658 New TAZ Loopback",
+    "description": "Comparison of the earliest road-density-generated centroid connectors, the stabilized algorithm output, and the current uploaded final CCs for the same 658 New TAZs.",
+    "generatedAt": "2026-07-24T05:48:52Z",
+    "charts": [
+      {
+        "id": "version_counts",
+        "title": "Unique connector pairs by preserved stage",
+        "subtitle": "Same 658 New TAZ cohort; earliest file has 2,632 features but 2,606 unique TAZ-node pairs",
+        "type": "bar",
+        "dataset": "version_counts",
+        "source": {
+          "id": "version_history_query",
+          "label": "Version inventory query",
+          "path": "analysis/new_taz_658_road_density_loopback_20260724/version_inventory.csv",
+          "query": {
+            "engine": "sqlite",
+            "language": "sql",
+            "sql": "SELECT short_stage AS stage,\n       CAST(connector_pairs AS INTEGER) AS connector_pairs,\n       CAST(stage_order AS INTEGER) AS stage_order\nFROM versions\nORDER BY stage_order",
+            "description": "Returns unique connector-pair counts for the eight preserved stages.",
+            "executed_at": "2026-07-24T05:48:52Z",
+            "tables_used": [
+              "versions"
+            ]
+          }
+        },
+        "valueFormat": "number",
+        "encodings": {
+          "x": {
+            "field": "stage",
+            "type": "nominal",
+            "label": "Stage"
+          },
+          "y": {
+            "field": "connector_pairs",
+            "type": "quantitative",
+            "label": "Unique connector pairs"
+          },
+          "tooltip": [
+            {
+              "field": "connector_pairs",
+              "type": "quantitative",
+              "label": "Unique pairs",
+              "format": "number"
+            }
+          ]
+        }
+      },
+      {
+        "id": "count_distribution",
+        "title": "Connector count per TAZ",
+        "subtitle": "Number of the 658 New TAZs with each unique connector count",
+        "type": "bar",
+        "dataset": "count_distribution",
+        "source": {
+          "id": "connector_count_distribution_query",
+          "label": "Per-TAZ connector-count distribution query",
+          "path": "analysis/new_taz_658_road_density_loopback_20260724/changes_by_taz.csv",
+          "query": {
+            "engine": "sqlite",
+            "language": "sql",
+            "sql": "SELECT stage,\n       connector_count,\n       taz_count\nFROM count_distribution\nORDER BY CASE stage\n           WHEN 'Earliest road-density' THEN 1\n           WHEN 'Stable algorithm' THEN 2\n           ELSE 3\n         END,\n         CAST(connector_count AS INTEGER)",
+            "description": "Counts New TAZs by connector count at the earliest, stable, and final stages.",
+            "executed_at": "2026-07-24T05:48:52Z",
+            "tables_used": [
+              "count_distribution"
+            ]
+          }
+        },
+        "valueFormat": "number",
+        "encodings": {
+          "x": {
+            "field": "connector_count",
+            "type": "ordinal",
+            "label": "Connectors per TAZ"
+          },
+          "y": {
+            "field": "taz_count",
+            "type": "quantitative",
+            "label": "TAZ count"
+          },
+          "color": {
+            "field": "stage",
+            "type": "nominal",
+            "label": "Stage"
+          },
+          "tooltip": [
+            {
+              "field": "stage",
+              "type": "nominal",
+              "label": "Stage"
+            },
+            {
+              "field": "taz_count",
+              "type": "quantitative",
+              "label": "TAZ count",
+              "format": "number"
+            }
+          ]
+        }
+      },
+      {
+        "id": "density_rank_retention",
+        "title": "Exact final retention by original density rank",
+        "subtitle": "Percent of baseline connector records retained as the same TAZ-node pair in the current final",
+        "type": "bar",
+        "dataset": "density_rank_retention",
+        "source": {
+          "id": "density_rank_retention_query",
+          "label": "Density-rank retention query",
+          "path": "analysis/new_taz_658_road_density_loopback_20260724/retention_by_density_rank.csv",
+          "query": {
+            "engine": "sqlite",
+            "language": "sql",
+            "sql": "SELECT baseline_label AS baseline,\n       rank_bucket,\n       ROUND(retention_pct, 1) AS retention_pct,\n       CAST(original_connectors AS INTEGER) AS original_connectors\nFROM rank_retention\nORDER BY rank_order,\n         CASE baseline WHEN 'Earliest road-density' THEN 1 ELSE 2 END",
+            "description": "Calculates final exact-pair retention by original density-rank bucket.",
+            "executed_at": "2026-07-24T05:48:52Z",
+            "tables_used": [
+              "rank_retention"
+            ]
+          }
+        },
+        "valueFormat": "percent",
+        "encodings": {
+          "x": {
+            "field": "rank_bucket",
+            "type": "ordinal",
+            "label": "Original density rank"
+          },
+          "y": {
+            "field": "retention_pct",
+            "type": "quantitative",
+            "label": "Retained (%)"
+          },
+          "color": {
+            "field": "baseline",
+            "type": "nominal",
+            "label": "Baseline"
+          },
+          "tooltip": [
+            {
+              "field": "baseline",
+              "type": "nominal",
+              "label": "Baseline"
+            },
+            {
+              "field": "retention_pct",
+              "type": "quantitative",
+              "label": "Retained (%)",
+              "format": "number"
+            },
+            {
+              "field": "original_connectors",
+              "type": "quantitative",
+              "label": "Original records",
+              "format": "number"
+            }
+          ]
+        }
+      },
+      {
+        "id": "edit_patterns",
+        "title": "TAZ-level edit pattern after the stable algorithm run",
+        "subtitle": "All 658 New TAZs; exact TAZ-node pair comparison",
+        "type": "bar",
+        "dataset": "edit_patterns",
+        "source": {
+          "id": "edit_pattern_query",
+          "label": "TAZ edit-pattern query",
+          "path": "analysis/new_taz_658_road_density_loopback_20260724/changes_by_taz.csv",
+          "query": {
+            "engine": "sqlite",
+            "language": "sql",
+            "sql": "SELECT edit_pattern,\n       CAST(taz_count AS INTEGER) AS taz_count\nFROM edit_patterns\nORDER BY pattern_order",
+            "description": "Counts TAZs by stable-algorithm-to-final edit pattern.",
+            "executed_at": "2026-07-24T05:48:52Z",
+            "tables_used": [
+              "edit_patterns"
+            ]
+          }
+        },
+        "valueFormat": "number",
+        "encodings": {
+          "x": {
+            "field": "edit_pattern",
+            "type": "nominal",
+            "label": "Edit pattern"
+          },
+          "y": {
+            "field": "taz_count",
+            "type": "quantitative",
+            "label": "TAZ count"
+          },
+          "tooltip": [
+            {
+              "field": "taz_count",
+              "type": "quantitative",
+              "label": "TAZ count",
+              "format": "number"
+            }
+          ]
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "version_inventory",
+        "title": "Preserved version inventory",
+        "subtitle": "Feature counts can exceed unique pairs when multiple sectors snap to the same TAZ-node pair",
+        "dataset": "version_inventory",
+        "source": {
+          "id": "version_inventory_table_query",
+          "label": "Version inventory table query",
+          "path": "analysis/new_taz_658_road_density_loopback_20260724/version_inventory.csv",
+          "query": {
+            "engine": "sqlite",
+            "language": "sql",
+            "sql": "SELECT stage,\n       generated_from,\n       CAST(connector_features AS INTEGER) AS connector_features,\n       CAST(connector_pairs AS INTEGER) AS unique_pairs,\n       CAST(duplicate_taz_node_features AS INTEGER) AS duplicate_features,\n       CAST(taz_with_connector AS INTEGER) AS covered_taz\nFROM versions\nORDER BY stage_order",
+            "description": "Returns the exact feature, pair, duplicate, and coverage counts for each stage.",
+            "executed_at": "2026-07-24T05:48:52Z",
+            "tables_used": [
+              "versions"
+            ]
+          }
+        },
+        "defaultSort": {
+          "field": "stage",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "stage",
+            "label": "Stage",
+            "type": "text"
+          },
+          {
+            "field": "generated_from",
+            "label": "Run / source",
+            "type": "text"
+          },
+          {
+            "field": "connector_features",
+            "label": "Features",
+            "format": "number"
+          },
+          {
+            "field": "unique_pairs",
+            "label": "Unique pairs",
+            "format": "number"
+          },
+          {
+            "field": "duplicate_features",
+            "label": "Duplicates",
+            "format": "number"
+          },
+          {
+            "field": "covered_taz",
+            "label": "TAZ covered",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "analysis_summary",
+        "label": "Road-density to final comparison summary",
+        "path": "analysis/new_taz_658_road_density_loopback_20260724/summary.json"
+      },
+      {
+        "id": "version_history_query",
+        "label": "Version inventory query",
+        "path": "analysis/new_taz_658_road_density_loopback_20260724/version_inventory.csv",
+        "query": {
+          "engine": "sqlite",
+          "language": "sql",
+          "sql": "SELECT short_stage AS stage,\n       CAST(connector_pairs AS INTEGER) AS connector_pairs,\n       CAST(stage_order AS INTEGER) AS stage_order\nFROM versions\nORDER BY stage_order",
+          "description": "Returns unique connector-pair counts for the eight preserved stages.",
+          "executed_at": "2026-07-24T05:48:52Z",
+          "tables_used": [
+            "versions"
+          ]
+        }
+      },
+      {
+        "id": "connector_count_distribution_query",
+        "label": "Per-TAZ connector-count distribution query",
+        "path": "analysis/new_taz_658_road_density_loopback_20260724/changes_by_taz.csv",
+        "query": {
+          "engine": "sqlite",
+          "language": "sql",
+          "sql": "SELECT stage,\n       connector_count,\n       taz_count\nFROM count_distribution\nORDER BY CASE stage\n           WHEN 'Earliest road-density' THEN 1\n           WHEN 'Stable algorithm' THEN 2\n           ELSE 3\n         END,\n         CAST(connector_count AS INTEGER)",
+          "description": "Counts New TAZs by connector count at the earliest, stable, and final stages.",
+          "executed_at": "2026-07-24T05:48:52Z",
+          "tables_used": [
+            "count_distribution"
+          ]
+        }
+      },
+      {
+        "id": "density_rank_retention_query",
+        "label": "Density-rank retention query",
+        "path": "analysis/new_taz_658_road_density_loopback_20260724/retention_by_density_rank.csv",
+        "query": {
+          "engine": "sqlite",
+          "language": "sql",
+          "sql": "SELECT baseline_label AS baseline,\n       rank_bucket,\n       ROUND(retention_pct, 1) AS retention_pct,\n       CAST(original_connectors AS INTEGER) AS original_connectors\nFROM rank_retention\nORDER BY rank_order,\n         CASE baseline WHEN 'Earliest road-density' THEN 1 ELSE 2 END",
+          "description": "Calculates final exact-pair retention by original density-rank bucket.",
+          "executed_at": "2026-07-24T05:48:52Z",
+          "tables_used": [
+            "rank_retention"
+          ]
+        }
+      },
+      {
+        "id": "edit_pattern_query",
+        "label": "TAZ edit-pattern query",
+        "path": "analysis/new_taz_658_road_density_loopback_20260724/changes_by_taz.csv",
+        "query": {
+          "engine": "sqlite",
+          "language": "sql",
+          "sql": "SELECT edit_pattern,\n       CAST(taz_count AS INTEGER) AS taz_count\nFROM edit_patterns\nORDER BY pattern_order",
+          "description": "Counts TAZs by stable-algorithm-to-final edit pattern.",
+          "executed_at": "2026-07-24T05:48:52Z",
+          "tables_used": [
+            "edit_patterns"
+          ]
+        }
+      },
+      {
+        "id": "version_inventory_table_query",
+        "label": "Version inventory table query",
+        "path": "analysis/new_taz_658_road_density_loopback_20260724/version_inventory.csv",
+        "query": {
+          "engine": "sqlite",
+          "language": "sql",
+          "sql": "SELECT stage,\n       generated_from,\n       CAST(connector_features AS INTEGER) AS connector_features,\n       CAST(connector_pairs AS INTEGER) AS unique_pairs,\n       CAST(duplicate_taz_node_features AS INTEGER) AS duplicate_features,\n       CAST(taz_with_connector AS INTEGER) AS covered_taz\nFROM versions\nORDER BY stage_order",
+          "description": "Returns the exact feature, pair, duplicate, and coverage counts for each stage.",
+          "executed_at": "2026-07-24T05:48:52Z",
+          "tables_used": [
+            "versions"
+          ]
+        }
+      },
+      {
+        "id": "analysis_method",
+        "label": "Reproducible comparison script",
+        "path": "analysis/new_taz_658_road_density_loopback_20260724/analyze_road_density_to_final.py"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# From Road Density to Final Connectors: 658 New TAZ Loopback"
+      },
+      {
+        "id": "executive_summary",
+        "type": "markdown",
+        "sourceId": "analysis_summary",
+        "body": "## Executive Summary\n\n- **The final CCs are not a lightly edited copy of the earliest road-density output.** The earliest preserved file contains 2,632 connector features (2,606 unique TAZ-node pairs); the current final contains 1,467 pairs. Only 296 earliest pairs remain exact matches (11.4%). Most of that gap reflects multiple algorithm revisions before human review.\n- **Against the stabilized 1,550-pair algorithm output, human editing is still structural.** The final retains 639 exact pairs, removes 911, and adds 828. Pair sets changed in 535 of 658 TAZs; 298 TAZs kept the same count but replaced one or more endpoints.\n- **Road density is a weak preference, not the governing decision rule.** Stable-run rank-1 connectors have the highest retention at 45.3%, but other rank groups retain 35.1% to 43.7%, and removed connectors have slightly higher median density than retained connectors.\n- **Human review expands the candidate universe and prioritizes coverage.** All 25 TAZs left without a connector by the stable run are served in the final. Of 828 added pairs, 731 were not among the 2026-07-22 generator's matched candidates."
+      },
+      {
+        "id": "history",
+        "type": "markdown",
+        "sourceId": "analysis_summary",
+        "body": "## Algorithm evolution explains much of the earliest-to-final gap\n\n**The earliest road-density run should be treated as the starting concept, not as the direct manual-review baseline.** It targeted four connectors per TAZ and used an older node source. Successive QC, node-sharing, snapping, and target-count changes reduced and replaced many pairs before the first human-edited publish.\n\nThe direct human loopback is therefore the stable 1,550-pair output to the 1,465-pair first human publish, with the current 1,467-pair upload as a small subsequent revision. The full earliest-to-final comparison remains useful for deciding what the generator should ultimately learn."
+      },
+      {
+        "id": "version_chart",
+        "type": "chart",
+        "chartId": "version_counts"
+      },
+      {
+        "id": "version_table_block",
+        "type": "table",
+        "tableId": "version_inventory"
+      },
+      {
+        "id": "quota",
+        "type": "markdown",
+        "sourceId": "analysis_summary",
+        "body": "## The final design replaces a fixed quota with TAZ-specific access\n\n**The final connector count is intentionally heterogeneous.** The earliest run placed four unique pairs in 640 TAZs. The stable run concentrated at two or three and left 25 TAZs unserved. The final serves every TAZ, with 139 TAZs using one connector, 257 using two, 235 using three, 26 using four, and one using five.\n\nThis is the clearest loopback signal for count selection: three or four should be a soft target or maximum search depth, not a required output count. Coverage and non-redundant access matter more than a uniform quota."
+      },
+      {
+        "id": "count_chart",
+        "type": "chart",
+        "chartId": "count_distribution"
+      },
+      {
+        "id": "density",
+        "type": "markdown",
+        "sourceId": "analysis_summary",
+        "body": "## Density helps choose a direction but does not identify the final node\n\n**The review outcome does not show a monotonic keep-high-density rule.** In the stable run, rank-1 pairs retain at 45.3%; ranks 5-6 retain at 43.7%, while rank 2 retains at 35.1%. Median density is 0.00737 for retained pairs versus 0.00828 for removed pairs. Boundary-crossing length also does not separate retained and removed pairs.\n\nRoad density should remain a directional accessibility signal, but it should not dominate endpoint selection. The generator needs a broader node candidate search plus independent checks for practical network access and redundancy."
+      },
+      {
+        "id": "rank_chart",
+        "type": "chart",
+        "chartId": "density_rank_retention"
+      },
+      {
+        "id": "endpoint_change",
+        "type": "markdown",
+        "sourceId": "analysis_summary",
+        "body": "## Human edits redraw endpoints more often than they make small nudges\n\n**Only 123 TAZs keep the stable-run pair set unchanged.** There are 298 same-count replacements, 156 net reductions, and 81 net increases. Among 737 minimum-distance matched replacements, the median endpoint shift is 967 ft; 359 shifts exceed 1,000 ft. Major level stays the same in 696 matched replacements, so the edits are not primarily a functional-class upgrade.\n\nOnly 97 of 828 additions appear in the stable run's matched candidate universe. The current sector-to-node fallback is therefore the main recall constraint: changing the final ranker alone cannot reproduce most human-selected endpoints."
+      },
+      {
+        "id": "pattern_chart",
+        "type": "chart",
+        "chartId": "edit_patterns"
+      },
+      {
+        "id": "recommendations",
+        "type": "markdown",
+        "sourceId": "analysis_summary",
+        "body": "## Recommended loopback changes\n\n1. **Keep road density as a soft directional prior.** Give a modest bonus to high-density sectors, but do not let density rank decide the node by itself.\n2. **Expand candidate generation before tuning weights.** For each sector, retain several eligible nodes and add nearby plausible access nodes outside the current matched fallback. Measure candidate recall against the 828 human-added pairs; the present recall is only 11.7%.\n3. **Select a variable number of non-redundant connectors.** Guarantee at least one valid connector per TAZ, then add connectors only when they provide a distinct access direction or network branch. Treat three as a planning target, not a hard quota.\n4. **Separate candidate recall from ranking quality.** First test whether the human-selected node appears in top-K candidates; only then evaluate how often the ranker places it first. This prevents weight tuning from masking a search-space problem.\n5. **Capture an edit reason code and accepted alternatives.** Suggested codes include `NO_ACCESS`, `WRONG_ROAD`, `REDUNDANT_DIRECTION`, `BETTER_NODE`, `ADD_COVERAGE`, and `COUNT_ADJUSTMENT`. The current analysis infers intent from outcomes because no reason field exists.\n6. **Preserve immutable run and edit snapshots.** Store feature count, unique-pair count, input hashes, parameters, candidate sets, and final edits together so future loopback can distinguish rule changes from human decisions."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## Further Questions\n\n- Which field-review principle caused the 731 additions outside the stable candidate universe: road continuity, driveway/access geometry, local network knowledge, or another rule?\n- Should one-connector TAZs be accepted as complete, or flagged for a second independent-access search?\n- Are the 26 four-connector and one five-connector outcomes deliberate exceptions that can be described with repeatable criteria?\n- Can the next editing export include rejected candidate IDs and reason codes so candidate recall and ranking accuracy have explicit labels?"
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and Assumptions\n\n- The earliest file has 2,632 connector features but only 2,606 unique TAZ-node pairs because 26 records repeat a pair across sectors. All pair-level comparisons use unique pairs; record-level density summaries retain the original feature denominator.\n- The earliest run targeted four connectors and references the older `run_20260712_155615` node source. The stabilized run targeted three and uses the July 22 node source. Earliest-to-final differences therefore combine algorithm/input evolution and human editing.\n- Candidate-universe recall can be tested only for the preserved July 22 GPKG. The earliest selected connectors are preserved in Git, but its complete candidate layer is not.\n- Replacement pairs are matched within each TAZ by the minimum total endpoint shift. This provides a consistent comparison but is not a recorded reviewer mapping.\n- No test run was needed: Git preserves the earliest road-density JSON, and the July 22 GPKG preserves its run configuration, candidate layers, and final algorithm selections."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-24T05:48:52Z",
+    "status": "ready",
+    "datasets": {
+      "version_counts": [
+        {
+          "stage": "Earliest\n2,632 features",
+          "connector_pairs": 2606,
+          "stage_order": 1
+        },
+        {
+          "stage": "QC rules",
+          "connector_pairs": 1769,
+          "stage_order": 2
+        },
+        {
+          "stage": "No shared\nnodes",
+          "connector_pairs": 1855,
+          "stage_order": 3
+        },
+        {
+          "stage": "Improved\nrules",
+          "connector_pairs": 1570,
+          "stage_order": 4
+        },
+        {
+          "stage": "Stable\nalgorithm",
+          "connector_pairs": 1550,
+          "stage_order": 5
+        },
+        {
+          "stage": "Published\nalgorithm",
+          "connector_pairs": 1550,
+          "stage_order": 6
+        },
+        {
+          "stage": "First human\npublish",
+          "connector_pairs": 1465,
+          "stage_order": 7
+        },
+        {
+          "stage": "Current\nfinal",
+          "connector_pairs": 1467,
+          "stage_order": 8
+        }
+      ],
+      "count_distribution": [
+        {
+          "stage": "Earliest road-density",
+          "connector_count": "1",
+          "taz_count": 3
+        },
+        {
+          "stage": "Earliest road-density",
+          "connector_count": "2",
+          "taz_count": 2
+        },
+        {
+          "stage": "Earliest road-density",
+          "connector_count": "3",
+          "taz_count": 13
+        },
+        {
+          "stage": "Earliest road-density",
+          "connector_count": "4",
+          "taz_count": 640
+        },
+        {
+          "stage": "Stable algorithm",
+          "connector_count": "0",
+          "taz_count": 25
+        },
+        {
+          "stage": "Stable algorithm",
+          "connector_count": "1",
+          "taz_count": 72
+        },
+        {
+          "stage": "Stable algorithm",
+          "connector_count": "2",
+          "taz_count": 205
+        },
+        {
+          "stage": "Stable algorithm",
+          "connector_count": "3",
+          "taz_count": 356
+        },
+        {
+          "stage": "Current final",
+          "connector_count": "1",
+          "taz_count": 139
+        },
+        {
+          "stage": "Current final",
+          "connector_count": "2",
+          "taz_count": 257
+        },
+        {
+          "stage": "Current final",
+          "connector_count": "3",
+          "taz_count": 235
+        },
+        {
+          "stage": "Current final",
+          "connector_count": "4",
+          "taz_count": 26
+        },
+        {
+          "stage": "Current final",
+          "connector_count": "5",
+          "taz_count": 1
+        }
+      ],
+      "density_rank_retention": [
+        {
+          "baseline": "Earliest road-density",
+          "rank_bucket": "1",
+          "retention_pct": 17.6,
+          "original_connectors": 535
+        },
+        {
+          "baseline": "Stable algorithm",
+          "rank_bucket": "1",
+          "retention_pct": 45.3,
+          "original_connectors": 506
+        },
+        {
+          "baseline": "Earliest road-density",
+          "rank_bucket": "2",
+          "retention_pct": 10.2,
+          "original_connectors": 391
+        },
+        {
+          "baseline": "Stable algorithm",
+          "rank_bucket": "2",
+          "retention_pct": 35.1,
+          "original_connectors": 251
+        },
+        {
+          "baseline": "Earliest road-density",
+          "rank_bucket": "3-4",
+          "retention_pct": 11.0,
+          "original_connectors": 754
+        },
+        {
+          "baseline": "Stable algorithm",
+          "rank_bucket": "3-4",
+          "retention_pct": 38.8,
+          "original_connectors": 374
+        },
+        {
+          "baseline": "Earliest road-density",
+          "rank_bucket": "5-6",
+          "retention_pct": 10.5,
+          "original_connectors": 599
+        },
+        {
+          "baseline": "Stable algorithm",
+          "rank_bucket": "5-6",
+          "retention_pct": 43.7,
+          "original_connectors": 231
+        },
+        {
+          "baseline": "Earliest road-density",
+          "rank_bucket": "7-10",
+          "retention_pct": 6.2,
+          "original_connectors": 353
+        },
+        {
+          "baseline": "Stable algorithm",
+          "rank_bucket": "7-10",
+          "retention_pct": 40.4,
+          "original_connectors": 188
+        }
+      ],
+      "edit_patterns": [
+        {
+          "edit_pattern": "No pair change",
+          "taz_count": 123
+        },
+        {
+          "edit_pattern": "Same-count replacement",
+          "taz_count": 298
+        },
+        {
+          "edit_pattern": "Net reduction",
+          "taz_count": 156
+        },
+        {
+          "edit_pattern": "Net increase",
+          "taz_count": 81
+        }
+      ],
+      "version_inventory": [
+        {
+          "stage": "Earliest road-density baseline",
+          "generated_from": "run_20260715_114631",
+          "connector_features": 2632,
+          "unique_pairs": 2606,
+          "duplicate_features": 26,
+          "covered_taz": 658
+        },
+        {
+          "stage": "QC rules",
+          "generated_from": "run_20260722_014023",
+          "connector_features": 1899,
+          "unique_pairs": 1769,
+          "duplicate_features": 130,
+          "covered_taz": 633
+        },
+        {
+          "stage": "No cross-TAZ node sharing",
+          "generated_from": "run_20260722_020207",
+          "connector_features": 1855,
+          "unique_pairs": 1855,
+          "duplicate_features": 0,
+          "covered_taz": 633
+        },
+        {
+          "stage": "Improved connector rules",
+          "generated_from": "run_20260722_024527",
+          "connector_features": 1570,
+          "unique_pairs": 1570,
+          "duplicate_features": 0,
+          "covered_taz": 633
+        },
+        {
+          "stage": "Stabilized road-density run",
+          "generated_from": "run_20260722_033549",
+          "connector_features": 1550,
+          "unique_pairs": 1550,
+          "duplicate_features": 0,
+          "covered_taz": 633
+        },
+        {
+          "stage": "Published algorithm snapshot",
+          "generated_from": "run_20260722_033549",
+          "connector_features": 1550,
+          "unique_pairs": 1550,
+          "duplicate_features": 0,
+          "covered_taz": 633
+        },
+        {
+          "stage": "First human-edited publish",
+          "generated_from": "run_20260722_033549",
+          "connector_features": 1465,
+          "unique_pairs": 1465,
+          "duplicate_features": 0,
+          "covered_taz": 658
+        },
+        {
+          "stage": "Current uploaded final",
+          "generated_from": "input/default/cube_taz_cc_public.csv",
+          "connector_features": 1467,
+          "unique_pairs": 1467,
+          "duplicate_features": 0,
+          "covered_taz": 658
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "analysis_summary",
+      "label": "Road-density to final comparison summary",
+      "path": "analysis/new_taz_658_road_density_loopback_20260724/summary.json"
+    },
+    {
+      "id": "version_history_query",
+      "label": "Version inventory query",
+      "path": "analysis/new_taz_658_road_density_loopback_20260724/version_inventory.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT short_stage AS stage,\n       CAST(connector_pairs AS INTEGER) AS connector_pairs,\n       CAST(stage_order AS INTEGER) AS stage_order\nFROM versions\nORDER BY stage_order",
+        "description": "Returns unique connector-pair counts for the eight preserved stages.",
+        "executed_at": "2026-07-24T05:48:52Z",
+        "tables_used": [
+          "versions"
+        ]
+      }
+    },
+    {
+      "id": "connector_count_distribution_query",
+      "label": "Per-TAZ connector-count distribution query",
+      "path": "analysis/new_taz_658_road_density_loopback_20260724/changes_by_taz.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT stage,\n       connector_count,\n       taz_count\nFROM count_distribution\nORDER BY CASE stage\n           WHEN 'Earliest road-density' THEN 1\n           WHEN 'Stable algorithm' THEN 2\n           ELSE 3\n         END,\n         CAST(connector_count AS INTEGER)",
+        "description": "Counts New TAZs by connector count at the earliest, stable, and final stages.",
+        "executed_at": "2026-07-24T05:48:52Z",
+        "tables_used": [
+          "count_distribution"
+        ]
+      }
+    },
+    {
+      "id": "density_rank_retention_query",
+      "label": "Density-rank retention query",
+      "path": "analysis/new_taz_658_road_density_loopback_20260724/retention_by_density_rank.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT baseline_label AS baseline,\n       rank_bucket,\n       ROUND(retention_pct, 1) AS retention_pct,\n       CAST(original_connectors AS INTEGER) AS original_connectors\nFROM rank_retention\nORDER BY rank_order,\n         CASE baseline WHEN 'Earliest road-density' THEN 1 ELSE 2 END",
+        "description": "Calculates final exact-pair retention by original density-rank bucket.",
+        "executed_at": "2026-07-24T05:48:52Z",
+        "tables_used": [
+          "rank_retention"
+        ]
+      }
+    },
+    {
+      "id": "edit_pattern_query",
+      "label": "TAZ edit-pattern query",
+      "path": "analysis/new_taz_658_road_density_loopback_20260724/changes_by_taz.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT edit_pattern,\n       CAST(taz_count AS INTEGER) AS taz_count\nFROM edit_patterns\nORDER BY pattern_order",
+        "description": "Counts TAZs by stable-algorithm-to-final edit pattern.",
+        "executed_at": "2026-07-24T05:48:52Z",
+        "tables_used": [
+          "edit_patterns"
+        ]
+      }
+    },
+    {
+      "id": "version_inventory_table_query",
+      "label": "Version inventory table query",
+      "path": "analysis/new_taz_658_road_density_loopback_20260724/version_inventory.csv",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT stage,\n       generated_from,\n       CAST(connector_features AS INTEGER) AS connector_features,\n       CAST(connector_pairs AS INTEGER) AS unique_pairs,\n       CAST(duplicate_taz_node_features AS INTEGER) AS duplicate_features,\n       CAST(taz_with_connector AS INTEGER) AS covered_taz\nFROM versions\nORDER BY stage_order",
+        "description": "Returns the exact feature, pair, duplicate, and coverage counts for each stage.",
+        "executed_at": "2026-07-24T05:48:52Z",
+        "tables_used": [
+          "versions"
+        ]
+      }
+    },
+    {
+      "id": "analysis_method",
+      "label": "Reproducible comparison script",
+      "path": "analysis/new_taz_658_road_density_loopback_20260724/analyze_road_density_to_final.py"
+    }
+  ]
+}
