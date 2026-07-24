@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, "..");
 const appSource = fs.readFileSync(path.join(root, "docs", "app.js"), "utf8");
 const htmlSource = fs.readFileSync(path.join(root, "docs", "index.html"), "utf8");
 const styleSource = fs.readFileSync(path.join(root, "docs", "styles.css"), "utf8");
+const helpDocumentPath = path.join(root, "docs", "TAZ_CC_Rules_and_HERE_MISS_Workflow.docx");
 
 assert.match(htmlSource, /id="addMissingLinkBtn"/, "top toolbar should expose Add Missing Links");
 assert.match(htmlSource, /id="loadMissingLinksBtn"/, "top toolbar should expose HERE_MISS file loading");
@@ -18,6 +19,10 @@ assert.match(htmlSource, /data-inspector-tab="missing"/, "right panel should inc
 assert.match(htmlSource, /data-inspector-tab="taz"/, "right panel should include a TAZ-status table tab");
 assert.match(htmlSource, /id="inspectorResizer"/, "right table panel should have a resize handle");
 assert.match(htmlSource, /class="toolbar-menu"/, "top toolbar actions should be grouped into dropdown menus");
+assert.match(appSource, /instructionsBtn"\)\.addEventListener\("click", \(\) => \{[\s\S]*?downloadHelpDocument\(\)/, "Help should download the rules document");
+assert.match(appSource, /const filename = "TAZ_CC_Rules_and_HERE_MISS_Workflow\.docx"/, "Help should use the published DOCX filename");
+assert.match(appSource, /const response = await fetch\(filename, \{ cache: "no-store" \}\)/, "Help should fetch the current published DOCX before downloading it");
+assert.ok(fs.existsSync(helpDocumentPath), "the Help DOCX should be published with the static web app");
 assert.match(styleSource, /@media \(max-width: 720px\)[\s\S]*?\.topbar \{[\s\S]*?grid-template-columns: 1fr;/, "small screens should stack the brand and grouped action menus");
 assert.match(styleSource, /\.toolbar-menu-panel \{[\s\S]*?position: fixed;/, "small-screen dropdown panels should fit the viewport");
 assert.match(appSource, /"here-miss-live": \{ type: "geojson"/, "HERE_MISS should use its own GeoJSON source");

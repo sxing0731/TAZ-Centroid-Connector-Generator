@@ -509,7 +509,13 @@ function bindControls() {
   qs("qcNote").addEventListener("input", () => saveQcNoteDraft(false));
   qs("qcNote").addEventListener("change", () => saveQcNoteDraft(true));
   qs("resetCcBtn").addEventListener("click", resetImportedCc);
-  qs("instructionsBtn").addEventListener("click", showInstructions);
+  qs("instructionsBtn").addEventListener("click", () => {
+    void downloadHelpDocument().catch((error) => {
+      console.error(error);
+      status(`Failed to download Help document: ${error.message}`);
+      toast(error.message);
+    });
+  });
   qs("closeInstructionsBtn").addEventListener("click", hideInstructions);
   qs("clearBtn").addEventListener("click", clearSelection);
   document.querySelectorAll("[data-inspector-tab]").forEach((button) => {
@@ -652,8 +658,15 @@ function syncLayerOrder() {
   draw();
 }
 
-function showInstructions() {
-  qs("instructionsPanel").classList.remove("hidden");
+async function downloadHelpDocument() {
+  const filename = "TAZ_CC_Rules_and_HERE_MISS_Workflow.docx";
+  const response = await fetch(filename, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Help document request failed (${response.status})`);
+  downloadBlob(
+    await response.blob(),
+    filename,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  );
 }
 
 function hideInstructions() {
