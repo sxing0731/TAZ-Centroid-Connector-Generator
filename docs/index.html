@@ -61,7 +61,13 @@
             <button id="tazStatusExportBtn">Export TAZ QC Status</button>
           </div>
         </details>
-        <button id="instructionsBtn" class="toolbar-direct-help">Help</button>
+        <a
+          id="helpPdfLink"
+          class="toolbar-direct-help"
+          href="TAZ_CC_Rules_and_HERE_MISS_Workflow.pdf"
+          download="TAZ_CC_Rules_and_HERE_MISS_Workflow.pdf"
+          title="Download the Help PDF"
+        >Help PDF</a>
         <input id="hereMissingFileInput" class="hidden" type="file" accept=".dbf,.csv,.cvs" />
         <input id="ccFileInput" class="hidden" type="file" multiple accept=".dbf,.csv,.cvs,.shp,.json,.geojson" />
         <div id="uploadBadge" class="badge upload-badge hidden"></div>
@@ -359,17 +365,6 @@
     <script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
     <script src="cc-file-loader.js?v=20260722-here-miss-import"></script>
-    <script src="app.js?v=20260724-help-doc-download"></script>
-    <script>
-      (() => {
-        const showInstructions = () => document.getElementById("instructionsPanel")?.classList.remove("hidden");
-        const hideInstructions = () => document.getElementById("instructionsPanel")?.classList.add("hidden");
-        document.getElementById("instructionsBtn")?.addEventListener("click", showInstructions);
-        document.getElementById("closeInstructionsBtn")?.addEventListener("click", hideInstructions);
-        document.addEventListener("keydown", (event) => {
-          if (event.key === "Escape") hideInstructions();
-        });
-      })();
-    </script>
+    <script src="app.js?v=20260724-help-pdf-download"></script>
   </body>
 </html>

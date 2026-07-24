@@ -967,14 +967,6 @@ function bindControls() {
   qs("qcNote").addEventListener("input", () => saveQcNoteDraft(false));
   qs("qcNote").addEventListener("change", () => saveQcNoteDraft(true));
   qs("resetCcBtn").addEventListener("click", resetImportedCc);
-  qs("instructionsBtn").addEventListener("click", () => {
-    void downloadHelpDocument().catch((error) => {
-      console.error(error);
-      status(`Failed to download Help document: ${error.message}`);
-      toast(error.message);
-    });
-  });
-  qs("closeInstructionsBtn").addEventListener("click", hideInstructions);
   qs("clearBtn").addEventListener("click", clearSelection);
   document.querySelectorAll("[data-inspector-tab]").forEach((button) => {
     button.addEventListener("click", () => setInspectorTab(button.dataset.inspectorTab));
@@ -1018,7 +1010,6 @@ function bindControls() {
       hideContextMenu();
       hideMissingLinkContextMenu();
       hideTazStatusMenu();
-      hideInstructions();
       if (state.missingLinkMode) stopMissingLinkMode();
     }
   });
@@ -1131,21 +1122,6 @@ function syncLayerOrder() {
   localStorage.setItem(STORAGE_KEYS.layerOrder, JSON.stringify(state.layerOrder));
   syncMapLibreLayerOrder();
   draw();
-}
-
-async function downloadHelpDocument() {
-  const filename = "TAZ_CC_Rules_and_HERE_MISS_Workflow.docx";
-  const response = await fetch(filename, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Help document request failed (${response.status})`);
-  downloadBlob(
-    await response.blob(),
-    filename,
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  );
-}
-
-function hideInstructions() {
-  qs("instructionsPanel").classList.add("hidden");
 }
 
 function showExportDialog() {

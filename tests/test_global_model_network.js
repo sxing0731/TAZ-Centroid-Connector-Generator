@@ -23,6 +23,6 @@ assert.match(appSource, /outsideGa: properties\.outside_ga/);
 assert.match(appSource, /if \(node\.outsideGa\) \{[\s\S]{0,100}node\.eligible = true/);
 assert.match(htmlSource, /Eligible Nodes \(incl\. 35,147 outside GA\)/);
 assert.match(htmlSource, /GSTDM Global Model Links/);
-assert.match(htmlSource, /app\.js\?v=20260724-help-doc-download/);
+assert.match(htmlSource, /app\.js\?v=20260724-help-pdf-download/);
 
 console.log("Global model network tests passed");

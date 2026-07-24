@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "..");
 const appSource = fs.readFileSync(path.join(root, "docs", "app.js"), "utf8");
 const htmlSource = fs.readFileSync(path.join(root, "docs", "index.html"), "utf8");
 const styleSource = fs.readFileSync(path.join(root, "docs", "styles.css"), "utf8");
-const helpDocumentPath = path.join(root, "docs", "TAZ_CC_Rules_and_HERE_MISS_Workflow.docx");
+const helpDocumentPath = path.join(root, "docs", "TAZ_CC_Rules_and_HERE_MISS_Workflow.pdf");
 
 assert.match(htmlSource, /id="addMissingLinkBtn"/, "top toolbar should expose Add Missing Links");
 assert.match(htmlSource, /id="loadMissingLinksBtn"/, "top toolbar should expose HERE_MISS file loading");
@@ -21,12 +21,11 @@ assert.match(htmlSource, /id="inspectorResizer"/, "right table panel should have
 assert.match(htmlSource, /class="toolbar-edit-expanded"/, "edit actions should remain expanded in the top toolbar");
 assert.match(htmlSource, /<summary>INPUT<\/summary>/, "file loading should be grouped under INPUT");
 assert.match(htmlSource, /<summary>OUTPUT<\/summary>/, "exports should be grouped under OUTPUT");
-assert.match(htmlSource, /id="instructionsBtn" class="toolbar-direct-help">Help<\/button>/, "Help should remain a direct toolbar button");
+assert.match(htmlSource, /id="helpPdfLink"[\s\S]*?class="toolbar-direct-help"[\s\S]*?href="TAZ_CC_Rules_and_HERE_MISS_Workflow\.pdf"[\s\S]*?download="TAZ_CC_Rules_and_HERE_MISS_Workflow\.pdf"[\s\S]*?>Help PDF<\/a>/, "Help PDF should be a direct PDF download link");
 assert.doesNotMatch(htmlSource, /<summary>Help<\/summary>/, "Help should not be a dropdown");
-assert.match(appSource, /instructionsBtn"\)\.addEventListener\("click", \(\) => \{[\s\S]*?downloadHelpDocument\(\)/, "Help should download the rules document");
-assert.match(appSource, /const filename = "TAZ_CC_Rules_and_HERE_MISS_Workflow\.docx"/, "Help should use the published DOCX filename");
-assert.match(appSource, /const response = await fetch\(filename, \{ cache: "no-store" \}\)/, "Help should fetch the current published DOCX before downloading it");
-assert.ok(fs.existsSync(helpDocumentPath), "the Help DOCX should be published with the static web app");
+assert.doesNotMatch(htmlSource, /showInstructions|instructionsBtn/, "Help PDF must not retain the legacy popup listener");
+assert.doesNotMatch(appSource, /downloadHelpDocument|instructionsBtn|hideInstructions/, "Help PDF must not rely on legacy instruction-panel JavaScript");
+assert.ok(fs.existsSync(helpDocumentPath), "the Help PDF should be published with the static web app");
 assert.match(styleSource, /@media \(max-width: 720px\)[\s\S]*?\.topbar \{[\s\S]*?grid-template-columns: 1fr;/, "small screens should stack the brand and grouped action menus");
 assert.match(styleSource, /\.toolbar-menu-panel \{[\s\S]*?position: fixed;/, "small-screen dropdown panels should fit the viewport");
 assert.match(appSource, /"here-miss-live": \{ type: "geojson"/, "HERE_MISS should use its own GeoJSON source");

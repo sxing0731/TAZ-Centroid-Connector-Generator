@@ -125,7 +125,8 @@ The static application supports:
   status, and TAZ QC notes;
 - table-row selection highlighting and double-click zoom for HERE_MISS links;
 - blank-map-click deselection for selected CC and HERE_MISS links;
-- categorized Navigate, Edit, Data, Export, and Help dropdown menus that keep
+- categorized Navigate, Edit, Data, and Export dropdown menus plus a direct
+  Help PDF download that keep
   the complete action set accessible on small screens;
 - preprocessing exclusion of red major nodes, with manual red-node overrides
   allowed only after a large persistent warning is shown;
