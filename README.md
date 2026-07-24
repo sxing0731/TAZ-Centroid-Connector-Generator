@@ -226,7 +226,8 @@ are projected and sent to MapLibre only for the current buffered viewport;
 panning refreshes that subset on `moveend` instead of keeping all 6,318
 polygons and 14,921 connector lines in the live WebGL GeoJSON sources. The
 expanded EDIT actions remain visible in the top toolbar; INPUT and OUTPUT group
-file loading and exports, Help opens directly, and a lower-left map overlay
+file loading and exports, Help PDF downloads the published reviewer guide
+without opening the legacy instruction panel, and a lower-left map overlay
 shows live counts for all four TAZ review statuses.
 
 Node rendering is staged for mobile performance: zooms 8-10 use lightweight

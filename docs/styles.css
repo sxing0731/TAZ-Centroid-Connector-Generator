@@ -105,8 +105,19 @@ body {
 
 .toolbar-direct-help {
   height: 36px;
+  min-width: max-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding-inline: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
   font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
 .toolbar-menu {
